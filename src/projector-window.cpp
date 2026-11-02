@@ -23,9 +23,12 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "text.hpp"
 #include "qt-display.hpp"
 
+#include <obs-frontend-api.h>
 #include <obs-module.h>
 
+#include <QGuiApplication>
 #include <QKeyEvent>
+#include <QTimer>
 #include <QVBoxLayout>
 
 ProjectorWindow::ProjectorWindow(Destination *destination, QScreen *screen, int index)
@@ -60,8 +63,41 @@ ProjectorWindow::ProjectorWindow(Destination *destination, QScreen *screen, int 
 		[this](OBSQTDisplay *w) { obs_display_add_draw_callback(w->GetDisplay(), DrawCb, this); });
 
 	/* Pas de curseur sur un écran de sortie. */
-	if (target)
+	if (target) {
 		setCursor(Qt::BlankCursor);
+		targetName = target->name();
+	}
+
+	/* Écran débranché puis rebranché (câble, veille de l'écran) : la
+	 * sortie se cache au lieu d'atterrir sur un autre écran, puis revient
+	 * seule sur son écran. */
+	connect(qApp, &QGuiApplication::screenRemoved, this, &ProjectorWindow::ScreenRemoved);
+	connect(qApp, &QGuiApplication::screenAdded, this, &ProjectorWindow::ScreenAdded);
+}
+
+void ProjectorWindow::ScreenRemoved(QScreen *screen)
+{
+	if (targetName.isEmpty() || screen != target)
+		return;
+	blog(LOG_INFO, "[multidestination-studio] output screen removed, projector hidden");
+	target = nullptr;
+	hide();
+}
+
+void ProjectorWindow::ScreenAdded(QScreen *screen)
+{
+	if (targetName.isEmpty() || target || !screen || screen->name() != targetName)
+		return;
+	blog(LOG_INFO, "[multidestination-studio] output screen back, projector restored");
+	target = screen;
+	const qreal ratio = target->devicePixelRatio();
+	nativeW = uint32_t(target->geometry().width() * ratio);
+	nativeH = uint32_t(target->geometry().height() * ratio);
+	/* Laisse le système finir de configurer l'écran. */
+	QTimer::singleShot(500, this, [this]() {
+		if (target)
+			Start();
+	});
 }
 
 ProjectorWindow::~ProjectorWindow()
@@ -73,8 +109,14 @@ ProjectorWindow::~ProjectorWindow()
 void ProjectorWindow::Start()
 {
 	if (target) {
-		setGeometry(target->geometry());
+		/* Toujours au premier plan sur son écran de sortie, sauf si c'est
+		 * l'écran de travail (on ne veut pas masquer OBS). Sans bord. */
+		auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+		const bool operatorScreen = main && main->screen() == target;
 		setWindowFlag(Qt::FramelessWindowHint, true);
+		setWindowFlag(Qt::WindowStaysOnTopHint, !operatorScreen);
+		setAttribute(Qt::WA_ShowWithoutActivating, !operatorScreen);
+		setGeometry(target->geometry());
 #ifdef Q_OS_MACOS
 		/* Pas de plein écran natif sur macOS : il crée un Space dédié
          * qui masque les autres écrans et se cache dès qu'on clique
@@ -89,8 +131,13 @@ void ProjectorWindow::Start()
 		show();
 	}
 	setFocusPolicy(Qt::StrongFocus);
-	activateWindow();
-	setFocus();
+	/* Une sortie sur un autre écran ne prend pas le focus : la fenêtre de
+	 * travail reste active (sur macOS, voler le focus faisait passer OBS
+	 * à l'arrière-plan). Un clic sur la sortie la rend active (Échap). */
+	if (!testAttribute(Qt::WA_ShowWithoutActivating)) {
+		activateWindow();
+		setFocus();
+	}
 }
 
 void ProjectorWindow::DrawCb(void *data, uint32_t cx, uint32_t cy)
@@ -117,26 +164,18 @@ void ProjectorWindow::keyPressEvent(QKeyEvent *event)
 
 void ProjectorWindow::mouseDoubleClickEvent(QMouseEvent *event)
 {
-#ifdef Q_OS_MACOS
-	const QRect screenGeo = target ? target->geometry() : QRect();
-	if (target && geometry() == screenGeo) {
+	/* Double-clic : plein écran sur l'écran de sortie <-> fenêtre normale
+	 * (avec bord, plus au premier plan). */
+	if (target && windowFlags().testFlag(Qt::FramelessWindowHint)) {
+		setWindowFlag(Qt::FramelessWindowHint, false);
+		setWindowFlag(Qt::WindowStaysOnTopHint, false);
+		showNormal();
 		resize(960, 540);
-		showNormal();
 		unsetCursor();
+		activateWindow();
 	} else if (target) {
-		setGeometry(target->geometry());
-		showNormal();
+		Start();
 		setCursor(Qt::BlankCursor);
 	}
-#else
-	if (isFullScreen()) {
-		showNormal();
-		unsetCursor();
-	} else if (target) {
-		setGeometry(target->geometry());
-		showFullScreen();
-		setCursor(Qt::BlankCursor);
-	}
-#endif
 	QWidget::mouseDoubleClickEvent(event);
 }

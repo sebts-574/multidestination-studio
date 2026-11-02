@@ -55,6 +55,12 @@ public:
 	void RenameScene(obs_source_t *mainScene, const std::string &name);
 	void RemoveScene(obs_source_t *mainScene);
 	void Sync();
+	/* Dossiers de la liste des scènes (organisation seulement) : tableau
+	 * d'entrées {"scene": uuid} ou {"folder": nom, "expanded": bool,
+	 * "scenes": [uuid…]}, dans l'ordre d'affichage. Enregistré avec la
+	 * collection. */
+	obs_data_array_t *SceneTree() const { return sceneTree; }
+	void SetSceneTree(obs_data_array_t *tree) { sceneTree = tree; }
 
 	/* --- Preview / Program globaux --- */
 	void SetPreviewScene(obs_source_t *mainScene);
@@ -123,6 +129,7 @@ private:
 	OBSWeakSource previewScene;
 	OBSWeakSource programScene;
 	OBSData pendingLoad;
+	OBSDataArray sceneTree;
 	/* Dernières données de la collection en cours (voir Save). */
 	OBSData snapshot;
 	bool ready = false;

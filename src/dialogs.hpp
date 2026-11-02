@@ -25,6 +25,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 class Destination;
 class QComboBox;
+class QDialog;
 class QScreen;
 class QString;
 class QWidget;
@@ -69,5 +70,9 @@ QScreen *FindScreen(const std::string &name);
 QString ScreenLabel(QScreen *screen, int index);
 /* Liste des écrans (« Aucun » en premier) ; data = nom de l'écran. */
 QComboBox *ScreenCombo(const std::string &current, QWidget *parent);
+
+/* Entrée dans un champ valide la valeur sans fermer la fenêtre : la
+ * touche n'active un bouton que s'il a le focus. */
+void GuardEnterKey(QDialog *dialog);
 
 } // namespace Dialogs

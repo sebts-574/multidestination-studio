@@ -379,28 +379,64 @@ void CopyLayout(obs_scene_t *from, obs_scene_t *to)
 	std::vector<Item> src = collect(from);
 	std::vector<Item> dst = collect(to);
 
+	/* Les groupes d'OBS ne se partagent pas entre scènes : la copie à
+	 * l'antenne a ses propres groupes. Deux groupes à la même place sont
+	 * donc considérés comme le même, et leur contenu est recopié. */
+	auto isGroup = [](const Item &it) {
+		return obs_sceneitem_is_group(it.item);
+	};
+	auto same = [&](const Item &a, const Item &b) {
+		return a.source.Get() == b.source.Get() || (isGroup(a) && isGroup(b));
+	};
+	auto copyItem = [&](const Item &from, obs_sceneitem_t *to) {
+		SetTransform(to, from.transform);
+		obs_sceneitem_set_visible(to, from.visible);
+		if (obs_sceneitem_is_group(from.item) && obs_sceneitem_is_group(to) &&
+		    obs_sceneitem_get_source(from.item) != obs_sceneitem_get_source(to))
+			CopyLayout(obs_sceneitem_group_get_scene(from.item), obs_sceneitem_group_get_scene(to));
+	};
+
 	bool sameSources = src.size() == dst.size();
 	for (size_t i = 0; sameSources && i < src.size(); i++)
-		sameSources = src[i].source.Get() == dst[i].source.Get();
+		sameSources = same(src[i], dst[i]);
 
 	if (sameSources) {
-		for (size_t i = 0; i < src.size(); i++) {
-			SetTransform(dst[i].item, src[i].transform);
-			obs_sceneitem_set_visible(dst[i].item, src[i].visible);
-		}
+		for (size_t i = 0; i < src.size(); i++)
+			copyItem(src[i], dst[i].item);
 		return;
 	}
 
-	/* Sources ajoutées ou retirées : on reconstruit dans le même ordre. */
-	for (auto &d : dst)
-		obs_sceneitem_remove(d.item);
-	for (auto &it : src) {
-		obs_sceneitem_t *added = obs_scene_add(to, it.source);
-		if (!added)
-			continue;
-		SetTransform(added, it.transform);
-		obs_sceneitem_set_visible(added, it.visible);
+	/* Sources ajoutées ou retirées : on reconstruit dans le même ordre.
+	 * Les groupes existants sont gardés (dans l'ordre où ils
+	 * apparaissent) au lieu d'être recréés. */
+	std::vector<obs_sceneitem_t *> keptGroups;
+	for (auto &d : dst) {
+		if (isGroup(d))
+			keptGroups.push_back(d.item);
+		else
+			obs_sceneitem_remove(d.item);
 	}
+	size_t nextGroup = 0;
+	std::vector<obs_sceneitem_t *> order;
+	for (auto &it : src) {
+		obs_sceneitem_t *target = nullptr;
+		if (isGroup(it)) {
+			if (nextGroup < keptGroups.size())
+				target = keptGroups[nextGroup++];
+			else
+				continue; /* un groupe ne peut pas être ajouté à une autre scène */
+		} else {
+			target = obs_scene_add(to, it.source);
+		}
+		if (!target)
+			continue;
+		copyItem(it, target);
+		order.push_back(target);
+	}
+	for (; nextGroup < keptGroups.size(); nextGroup++)
+		obs_sceneitem_remove(keptGroups[nextGroup]);
+	for (size_t i = 0; i < order.size(); i++)
+		obs_sceneitem_set_order_position(order[i], int(i));
 }
 
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH)

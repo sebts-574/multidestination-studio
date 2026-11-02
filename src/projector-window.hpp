@@ -42,6 +42,8 @@ public:
 
 	void Start();
 	QScreen *TargetScreen() const { return target; }
+	/* Écran choisi à l'ouverture (même s'il est débranché). */
+	bool WantsScreen() const { return !targetName.isEmpty(); }
 	int OutputIndex() const { return outputIndex; }
 
 protected:
@@ -49,10 +51,13 @@ protected:
 	void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
+	void ScreenRemoved(QScreen *screen);
+	void ScreenAdded(QScreen *screen);
 	static void DrawCb(void *data, uint32_t cx, uint32_t cy);
 
 	Destination *dest;
 	QPointer<QScreen> target;
+	QString targetName;
 	OBSQTDisplay *display = nullptr;
 	int outputIndex = -1;
 	std::unique_ptr<BlendRenderer> blendRenderer;

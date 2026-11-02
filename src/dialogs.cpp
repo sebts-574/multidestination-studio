@@ -34,6 +34,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QAbstractButton>
+#include <QApplication>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QRadioButton>
 #include <QScreen>
@@ -44,6 +46,39 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <vector>
 
 namespace Dialogs {
+
+namespace {
+class EnterKeyGuard : public QObject {
+public:
+	using QObject::QObject;
+
+protected:
+	bool eventFilter(QObject *watched, QEvent *event) override
+	{
+		if (event->type() != QEvent::KeyPress)
+			return QObject::eventFilter(watched, event);
+		auto *key = static_cast<QKeyEvent *>(event);
+		if (key->key() != Qt::Key_Return && key->key() != Qt::Key_Enter)
+			return QObject::eventFilter(watched, event);
+		/* Bouton qui a le focus : on le clique. Sinon (champ, valeur) :
+		 * la valeur est déjà validée par le champ, rien d'autre. */
+		if (auto *button = qobject_cast<QAbstractButton *>(QApplication::focusWidget())) {
+			if (button->window() == watched && button->isEnabled())
+				button->click();
+		}
+		return true;
+	}
+};
+} // namespace
+
+void GuardEnterKey(QDialog *dialog)
+{
+	dialog->installEventFilter(new EnterKeyGuard(dialog));
+	for (auto *button : dialog->findChildren<QPushButton *>()) {
+		button->setAutoDefault(false);
+		button->setDefault(false);
+	}
+}
 
 QScreen *FindScreen(const std::string &name)
 {

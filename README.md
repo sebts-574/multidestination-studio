@@ -2,7 +2,7 @@
 
 **Multidestination Studio** is a plugin for [OBS Studio](https://obsproject.com) that turns OBS into a multi-output show controller. It adds independent **destinations** (an LED wall, a set of blended projectors, stage monitors, the stream), each with its own resolution, Preview and Program, all driven from one full-screen studio view with a single TAKE.
 
-Version **1.0.4** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
+Version **1.0.5** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
 
 ## Features
 
@@ -12,6 +12,7 @@ Version **1.0.4** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.
 - **One TAKE for every destination**: Transition or Cut uses the OBS transition. Locked destinations, and destinations the scene does not cover, keep their Program.
 - **Protected live output**: what is on air is a copy of the scene. "Modify PGM" lets you edit the live picture directly, and those edits are kept in the scene.
 - **Mouse editing**: move, resize, crop, centre snapping, undo, reordering, multi-selection, drag and drop of media files.
+- **Organisation**: scene folders (collapsible) and OBS source groups.
 - **Output blending**: spread one destination across several projectors with automatic soft-edge blending, gamma, curve, black level, corner pin and a built-in test pattern.
 - **Projection**: open any destination fullscreen on its screen, or one window per projector for a blended destination.
 - **Languages**: English, French and Norwegian (Bokmål), selectable independently from the OBS language.
@@ -22,9 +23,9 @@ Download the file for your system from the [Releases](https://github.com/sebts-5
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10/11 (x64) | `multidestination-studio-1.0.4-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
+| Windows 10/11 (x64) | `multidestination-studio-1.0.5-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
 | macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
-| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.4-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.4-x86_64-linux-gnu.deb` |
+| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.5-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.5-x86_64-linux-gnu.deb` |
 
 Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
 

@@ -772,7 +772,6 @@ void BlendEditor::BuildUi()
 		bottom->addWidget(closeButton);
 		connect(saveButton, &QPushButton::clicked, this, &BlendEditor::Save);
 		connect(closeButton, &QPushButton::clicked, this, &BlendEditor::reject);
-		saveButton->setDefault(true);
 	} else {
 		auto *cancel = new QPushButton(Tr("MDS.Cancel"), this);
 		createButton = new QPushButton(Tr("MDS.SaveAndCreate").replace("&", "&&"), this);
@@ -780,9 +779,9 @@ void BlendEditor::BuildUi()
 		bottom->addWidget(createButton);
 		connect(cancel, &QPushButton::clicked, this, &BlendEditor::reject);
 		connect(createButton, &QPushButton::clicked, this, &BlendEditor::Create);
-		createButton->setDefault(true);
 	}
 	root->addLayout(bottom);
+	Dialogs::GuardEnterKey(this);
 }
 
 BlendOutput *BlendEditor::Current()

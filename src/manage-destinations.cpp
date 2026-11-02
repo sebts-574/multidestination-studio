@@ -155,6 +155,7 @@ ManageDestinationsDialog::ManageDestinationsDialog(QWidget *parent) : QDialog(pa
 
 	Refresh();
 	list->setCurrentRow(0);
+	Dialogs::GuardEnterKey(this);
 }
 
 void ManageDestinationsDialog::Refresh()

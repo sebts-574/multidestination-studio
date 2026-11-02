@@ -56,6 +56,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCursor>
 #include <QStyle>
 #include <QTimer>
+#include <QTreeWidget>
+#include <set>
 #include <QToolButton>
 #include <QToolTip>
 #include <QUrl>
@@ -79,7 +81,13 @@ static QToolButton *ToolButton(const QString &text, const QString &tip, QWidget 
 }
 
 /* Contenu d'un dock : liste + barre de boutons en bas, comme dans OBS. */
-static QWidget *ListPanel(QListWidget *list, QHBoxLayout *buttons, QWidget *parent)
+/* Lignes de la liste des scènes (Qt::UserRole + 1). */
+static constexpr int SCENE_ROW_SCENE = 1;
+static constexpr int SCENE_ROW_FOLDER = 2;
+/* Lignes de la liste des sources : Qt::UserRole = id de l'élément,
+ * Qt::UserRole + 1 = id du groupe parent (0 = premier niveau). */
+
+static QWidget *ListPanel(QWidget *list, QHBoxLayout *buttons, QWidget *parent)
 {
 	auto *panel = new QWidget(parent);
 	auto *layout = new QVBoxLayout(panel);
@@ -309,58 +317,90 @@ void StudioWindow::BuildCentral()
 void StudioWindow::BuildDocks()
 {
 	/* --- Scènes --- */
-	auto *scenes = new ReorderList(this);
+	/* Liste des scènes avec dossiers repliables (organisation seulement :
+	 * on prend toujours une scène, jamais un dossier). */
+	auto *scenes = new OrganizerTree(this);
 	scenes->onDelete = [this]() {
 		RemoveSelectedScenes();
 	};
-	sceneList = scenes;
-	auto sceneOrderChanged = [this]() {
-		if (refreshingScenes || sceneOrderPending)
-			return;
-		sceneOrderPending = true;
-		QTimer::singleShot(0, this, &StudioWindow::ApplySceneOrderFromList);
+	scenes->onDropped = [this]() {
+		ApplySceneOrderFromList();
 	};
-	connect(sceneList->model(), &QAbstractItemModel::rowsMoved, this, sceneOrderChanged);
-	connect(sceneList->model(), &QAbstractItemModel::rowsRemoved, this, sceneOrderChanged);
-	connect(sceneList, &QListWidget::itemSelectionChanged, this, [this]() {
+	sceneList = scenes;
+	connect(sceneList, &QTreeWidget::itemSelectionChanged, this, [this]() {
+		if (refreshingScenes)
+			return;
 		OBSSource scene = SelectedScene();
 		if (scene)
 			Manager::Get().SetPreviewScene(scene);
 	});
+	connect(sceneList, &QTreeWidget::itemExpanded, this, [this]() {
+		if (!refreshingScenes)
+			SaveSceneTree();
+	});
+	connect(sceneList, &QTreeWidget::itemCollapsed, this, [this]() {
+		if (!refreshingScenes)
+			SaveSceneTree();
+	});
 	sceneList->setContextMenuPolicy(Qt::CustomContextMenu);
-	connect(sceneList, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+	connect(sceneList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
 		OBSSource scene = SelectedScene();
+		QTreeWidgetItem *current = sceneList->currentItem();
+		const bool onFolder = current && current->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
 		QMenu menu(this);
 		connect(menu.addAction(Tr("MDS.AddScene")), &QAction::triggered, this, &StudioWindow::AddScene);
-		if (scene) {
-			connect(menu.addAction(Tr("MDS.SceneSettingsMenu")), &QAction::triggered, this,
-				[this, scene]() { EditScene(scene); });
+		connect(menu.addAction(Tr("MDS.NewSceneFolder")), &QAction::triggered, this,
+			&StudioWindow::NewSceneFolder);
+		if (onFolder) {
 			menu.addSeparator();
+			connect(menu.addAction(Tr("MDS.RenameFolder")), &QAction::triggered, this,
+				[this, current]() { RenameSceneFolder(current); });
+			connect(menu.addAction(Tr("MDS.RemoveFolder")), &QAction::triggered, this,
+				[this]() { RemoveSelectedScenes(); });
+		}
+		if (scene || onFolder) {
+			menu.addSeparator();
+			if (scene)
+				connect(menu.addAction(Tr("MDS.SceneSettingsMenu")), &QAction::triggered, this,
+					[this, scene]() { EditScene(scene); });
 			connect(menu.addAction(Tr("MDS.MoveUp")), &QAction::triggered, this,
 				[this]() { MoveScene(-1); });
 			connect(menu.addAction(Tr("MDS.MoveDown")), &QAction::triggered, this,
 				[this]() { MoveScene(1); });
 			connect(menu.addAction(Tr("MDS.MoveTop")), &QAction::triggered, this,
-				[this]() { MoveScene(-sceneList->count()); });
+				[this]() { MoveScene(-100000); });
 			connect(menu.addAction(Tr("MDS.MoveBottom")), &QAction::triggered, this,
-				[this]() { MoveScene(sceneList->count()); });
+				[this]() { MoveScene(100000); });
+		}
+		if (scene) {
 			menu.addSeparator();
 			connect(menu.addAction(Tr("MDS.RemoveScene")), &QAction::triggered, this,
 				[this]() { RemoveSelectedScenes(); });
 		}
 		menu.exec(sceneList->viewport()->mapToGlobal(pos));
 	});
-	connect(sceneList, &QListWidget::itemDoubleClicked, this, [this]() { EditScene(SelectedScene()); });
+	connect(sceneList, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item) {
+		if (item && item->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER)
+			item->setExpanded(!item->isExpanded());
+		else
+			EditScene(SelectedScene());
+	});
 	auto *sceneButtons = new QHBoxLayout();
 	auto *addScene = ToolButton("+", Tr("MDS.AddScene"), this);
 	auto *removeScene = ToolButton("−", Tr("MDS.RemoveScene"), this);
 	auto *editScene = ToolButton("⚙", Tr("MDS.SceneSettingsMenu"), this);
+	auto *folderButton = new QToolButton(this);
+	folderButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogNewFolder));
+	folderButton->setToolTip(Tr("MDS.NewSceneFolder"));
+	folderButton->setAutoRaise(true);
 	connect(addScene, &QToolButton::clicked, this, &StudioWindow::AddScene);
 	connect(removeScene, &QToolButton::clicked, this, [this]() { RemoveSelectedScenes(); });
 	connect(editScene, &QToolButton::clicked, this, [this]() { EditScene(SelectedScene()); });
+	connect(folderButton, &QToolButton::clicked, this, &StudioWindow::NewSceneFolder);
 	sceneButtons->addWidget(addScene);
 	sceneButtons->addWidget(removeScene);
 	sceneButtons->addWidget(editScene);
+	sceneButtons->addWidget(folderButton);
 	auto *upScene = ToolButton("↑", Tr("MDS.MoveUp"), this);
 	auto *downScene = ToolButton("↓", Tr("MDS.MoveDown"), this);
 	connect(upScene, &QToolButton::clicked, this, [this]() { MoveScene(-1); });
@@ -372,43 +412,62 @@ void StudioWindow::BuildDocks()
 	/* --- Sources --- */
 	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant),
 	 * cliquer-glisser pour sélectionner plusieurs sources. */
-	auto *sources = new ReorderList(this);
+	auto *sources = new OrganizerTree(this);
 	sources->onDelete = [this]() {
 		EditRemove();
 	};
-	sourceList = sources;
-	auto sourceOrderChanged = [this]() {
-		if (refreshingSources || sourceOrderPending)
-			return;
-		sourceOrderPending = true;
-		QTimer::singleShot(0, this, &StudioWindow::ApplySourceOrderFromList);
+	sources->onDropped = [this]() {
+		ApplySourceOrderFromList();
 	};
-	connect(sourceList->model(), &QAbstractItemModel::rowsMoved, this, sourceOrderChanged);
-	connect(sourceList->model(), &QAbstractItemModel::rowsRemoved, this, sourceOrderChanged);
-	connect(sourceList, &QListWidget::itemSelectionChanged, this, [this]() {
+	sourceList = sources;
+	connect(sourceList, &QTreeWidget::itemSelectionChanged, this, [this]() {
 		if (refreshingSources)
 			return;
 		TileWidget *tile = ActiveTile();
-		QListWidgetItem *row = sourceList->currentItem();
-		if (tile)
-			tile->SetSelectedItem(row ? row->data(Qt::UserRole).toLongLong() : -1);
+		QTreeWidgetItem *row = sourceList->currentItem();
+		if (tile) {
+			/* Un élément d'un groupe : c'est le groupe qu'on sélectionne
+			 * dans l'aperçu. */
+			int64_t id = -1;
+			if (row) {
+				const qlonglong parent = row->data(0, Qt::UserRole + 1).toLongLong();
+				id = parent ? parent : row->data(0, Qt::UserRole).toLongLong();
+			}
+			tile->SetSelectedItem(id);
+		}
 		UpdateMediaControls();
 	});
-	connect(sourceList, &QListWidget::itemChanged, this, [this](QListWidgetItem *row) {
+	connect(sourceList, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem *row) {
 		if (refreshingSources)
 			return;
-		obs_scene_t *s = ActiveScene();
-		obs_sceneitem_t *item = s ? obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong())
-					  : nullptr;
+		OBSSceneItem item = ItemFromRow(row);
 		if (item) {
-			Undo::PushSceneState(s);
-			obs_sceneitem_set_visible(item, row->checkState() == Qt::Checked);
+			Undo::PushSceneState(ActiveScene());
+			obs_sceneitem_set_visible(item, row->checkState(0) == Qt::Checked);
 			AfterEdit();
 		}
 	});
-	connect(sourceList, &QListWidget::itemDoubleClicked, this, &StudioWindow::EditProperties);
+	auto groupCollapsed = [this](QTreeWidgetItem *row, bool collapsed) {
+		if (refreshingSources)
+			return;
+		if (OBSSceneItem item = ItemFromRow(row)) {
+			OBSDataAutoRelease priv = obs_sceneitem_get_private_settings(item);
+			obs_data_set_bool(priv, "collapsed", collapsed);
+		}
+	};
+	connect(sourceList, &QTreeWidget::itemExpanded, this,
+		[groupCollapsed](QTreeWidgetItem *row) { groupCollapsed(row, false); });
+	connect(sourceList, &QTreeWidget::itemCollapsed, this,
+		[groupCollapsed](QTreeWidgetItem *row) { groupCollapsed(row, true); });
+	connect(sourceList, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *row) {
+		OBSSceneItem item = ItemFromRow(row);
+		if (item && obs_sceneitem_is_group(item))
+			row->setExpanded(!row->isExpanded());
+		else
+			EditProperties();
+	});
 	sourceList->setContextMenuPolicy(Qt::CustomContextMenu);
-	connect(sourceList, &QListWidget::customContextMenuRequested, this,
+	connect(sourceList, &QTreeWidget::customContextMenuRequested, this,
 		[this](const QPoint &pos) { ShowItemMenu(sourceList->viewport()->mapToGlobal(pos)); });
 
 	auto *sourceButtons = new QHBoxLayout();
@@ -602,6 +661,11 @@ void StudioWindow::BuildMenus()
 	edit->addAction(MakeEditAction(Tr("MDS.Paste"), {QKeySequence::Paste}, &StudioWindow::EditPaste));
 	edit->addAction(MakeEditAction(Tr("MDS.PasteDuplicate"), {QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V)},
 				       &StudioWindow::EditPasteDuplicate));
+	edit->addSeparator();
+	edit->addAction(
+		MakeEditAction(Tr("MDS.GroupSources"), {QKeySequence(Qt::CTRL | Qt::Key_G)}, &StudioWindow::EditGroup));
+	edit->addAction(MakeEditAction(Tr("MDS.UngroupSources"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G)},
+				       &StudioWindow::EditUngroup));
 	edit->addAction(MakeEditAction(Tr("MDS.RemoveSource"),
 				       {QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)},
 				       &StudioWindow::EditRemove));
@@ -810,9 +874,18 @@ void StudioWindow::Open()
 	mixer->Refresh();
 
 	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+#ifdef Q_OS_MACOS
+	/* macOS : grande fenêtre (pas de plein écran natif, qui ouvre un
+	 * Space séparé et fait basculer vers OBS à la fermeture des
+	 * fenêtres). F11 reste disponible. */
+	if (main && main->screen())
+		setGeometry(main->screen()->availableGeometry());
+	showMaximized();
+#else
 	if (main && main->screen())
 		setGeometry(main->screen()->geometry());
 	showFullScreen();
+#endif
 	raise();
 	activateWindow();
 	/* Tailles par défaut des docks, une fois la taille réelle connue. */
@@ -1005,9 +1078,9 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 			return;
 		const QSignalBlocker blocker(sourceList);
 		sourceList->clearSelection();
-		for (int i = 0; i < sourceList->count(); i++) {
-			if (sourceList->item(i)->data(Qt::UserRole).toLongLong() == id)
-				sourceList->setCurrentRow(i);
+		for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
+			if (sourceList->topLevelItem(i)->data(0, Qt::UserRole).toLongLong() == id)
+				sourceList->setCurrentItem(sourceList->topLevelItem(i));
 		}
 		UpdateMediaControls();
 	});
@@ -1087,6 +1160,24 @@ bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
 	     event->type() == QEvent::LayoutRequest))
 		QTimer::singleShot(0, this, &StudioWindow::PlaceFullscreenHint);
 
+	/* Une fenêtre du studio se ferme (dialogue, dock flottant, sortie) :
+	 * si plus aucune fenêtre n'est active, le studio reprend le focus au
+	 * lieu de laisser le système passer à une autre application (macOS). */
+	if ((event->type() == QEvent::Hide || event->type() == QEvent::Close) && isVisible() && !isMinimized()) {
+		auto *w = qobject_cast<QWidget *>(watched);
+		if (w && w != this && w->isWindow() && w->windowType() != Qt::Popup && w->windowType() != Qt::ToolTip &&
+		    w->windowType() != Qt::SplashScreen && !w->inherits("QMenu") &&
+		    QGuiApplication::applicationState() == Qt::ApplicationActive) {
+			QTimer::singleShot(0, this, [this]() {
+				if (isVisible() && !isMinimized() && !QApplication::activeWindow() &&
+				    !QApplication::activeModalWidget()) {
+					raise();
+					activateWindow();
+				}
+			});
+		}
+	}
+
 	if (event->type() == QEvent::MouseButtonPress && isVisible()) {
 		auto *w = qobject_cast<QWidget *>(watched);
 		if (w && w->window() == this) {
@@ -1123,6 +1214,20 @@ void StudioWindow::ToggleFocus(Destination *dest)
 	UpdateGrids(true);
 }
 
+/* Toutes les lignes « scène » de la liste, dossiers compris. */
+static std::vector<QTreeWidgetItem *> SceneRows(QTreeWidget *tree)
+{
+	std::vector<QTreeWidgetItem *> rows;
+	for (int i = 0; i < tree->topLevelItemCount(); i++) {
+		QTreeWidgetItem *top = tree->topLevelItem(i);
+		if (top->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_SCENE)
+			rows.push_back(top);
+		for (int k = 0; k < top->childCount(); k++)
+			rows.push_back(top->child(k));
+	}
+	return rows;
+}
+
 void StudioWindow::RefreshTally()
 {
 	for (auto *t : pgmGrid->Tiles())
@@ -1130,11 +1235,10 @@ void StudioWindow::RefreshTally()
 
 	OBSSource program = Manager::Get().ProgramScene();
 	const char *pgmUuid = program ? obs_source_get_uuid(program) : nullptr;
-	for (int i = 0; i < sceneList->count(); i++) {
-		QListWidgetItem *row = sceneList->item(i);
-		QFont font = row->font();
-		font.setBold(pgmUuid && row->data(Qt::UserRole).toString() == QString::fromUtf8(pgmUuid));
-		row->setFont(font);
+	for (QTreeWidgetItem *row : SceneRows(sceneList)) {
+		QFont font = row->font(0);
+		font.setBold(pgmUuid && row->data(0, Qt::UserRole).toString() == QString::fromUtf8(pgmUuid));
+		row->setFont(0, font);
 	}
 }
 
@@ -1142,30 +1246,34 @@ void StudioWindow::RefreshTally()
 /* Scènes                                                               */
 /* ------------------------------------------------------------------ */
 
-void StudioWindow::RefreshScenes()
+static QTreeWidgetItem *MakeSceneRow(obs_source_t *scene, const std::vector<Destination *> &dests)
 {
-	Manager &m = Manager::Get();
-	OBSSource preview = m.PreviewScene();
-	auto dests = m.ActiveDestinations();
-
-	const QSignalBlocker blocker(sceneList);
-	refreshingScenes = true;
-	sceneList->clear();
-	for (auto &scene : Manager::MainScenes()) {
-		auto *row = new QListWidgetItem(QString::fromUtf8(obs_source_get_name(scene)), sceneList);
-		row->setData(Qt::UserRole, QString::fromUtf8(obs_source_get_uuid(scene)));
-
-		QStringList names;
-		for (auto *d : dests) {
-			if (d->Covers(scene))
-				names << QString::fromStdString(d->Name());
-		}
-		row->setToolTip(Tr("MDS.ShownOn").arg(names.isEmpty() ? Tr("MDS.NoDestination") : names.join(", ")));
-		if (scene.Get() == preview.Get())
-			sceneList->setCurrentItem(row);
+	auto *row = new QTreeWidgetItem();
+	row->setText(0, QString::fromUtf8(obs_source_get_name(scene)));
+	row->setData(0, Qt::UserRole, QString::fromUtf8(obs_source_get_uuid(scene)));
+	row->setData(0, Qt::UserRole + 1, SCENE_ROW_SCENE);
+	row->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled);
+	QStringList names;
+	for (auto *d : dests) {
+		if (d->Covers(scene))
+			names << QString::fromStdString(d->Name());
 	}
-	refreshingScenes = false;
-	RefreshTally();
+	row->setToolTip(0, Tr("MDS.ShownOn").arg(names.isEmpty() ? Tr("MDS.NoDestination") : names.join(", ")));
+	return row;
+}
+
+static QTreeWidgetItem *MakeFolderRow(const QString &name)
+{
+	auto *row = new QTreeWidgetItem();
+	row->setText(0, name);
+	row->setData(0, Qt::UserRole, name);
+	row->setData(0, Qt::UserRole + 1, SCENE_ROW_FOLDER);
+	row->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
+	row->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_DirIcon));
+	QFont font = row->font(0);
+	font.setItalic(true);
+	row->setFont(0, font);
+	return row;
 }
 
 /* Ordre des scènes : c'est la liste de scènes d'OBS qui fait foi (elle est
@@ -1200,34 +1308,217 @@ static bool ReorderObsScenes(const QStringList &order)
 	return true;
 }
 
+void StudioWindow::RefreshScenes()
+{
+	Manager &m = Manager::Get();
+	OBSSource preview = m.PreviewScene();
+	auto dests = m.ActiveDestinations();
+	const auto scenes = Manager::MainScenes();
+
+	auto findScene = [&](const char *uuid) -> obs_source_t * {
+		for (auto &sc : scenes) {
+			if (uuid && strcmp(obs_source_get_uuid(sc), uuid) == 0)
+				return sc;
+		}
+		return nullptr;
+	};
+
+	const QSignalBlocker blocker(sceneList);
+	refreshingScenes = true;
+	sceneList->clear();
+
+	/* Dossiers et ordre enregistrés, puis les scènes qui n'y figurent pas
+	 * encore (créées entre-temps), à la fin. */
+	std::set<obs_source_t *> placed;
+	std::vector<std::pair<QTreeWidgetItem *, bool>> folders;
+	obs_data_array_t *tree = m.SceneTree();
+	const size_t count = tree ? obs_data_array_count(tree) : 0;
+	for (size_t i = 0; i < count; i++) {
+		OBSDataAutoRelease entry = obs_data_array_item(tree, i);
+		const char *folder = obs_data_get_string(entry, "folder");
+		if (folder && *folder) {
+			QTreeWidgetItem *f = MakeFolderRow(QString::fromUtf8(folder));
+			sceneList->addTopLevelItem(f);
+			OBSDataArrayAutoRelease children = obs_data_get_array(entry, "scenes");
+			for (size_t k = 0; k < obs_data_array_count(children); k++) {
+				OBSDataAutoRelease c = obs_data_array_item(children, k);
+				obs_source_t *sc = findScene(obs_data_get_string(c, "uuid"));
+				if (sc && !placed.count(sc)) {
+					f->addChild(MakeSceneRow(sc, dests));
+					placed.insert(sc);
+				}
+			}
+			folders.emplace_back(f, obs_data_get_bool(entry, "expanded"));
+		} else {
+			obs_source_t *sc = findScene(obs_data_get_string(entry, "scene"));
+			if (sc && !placed.count(sc)) {
+				sceneList->addTopLevelItem(MakeSceneRow(sc, dests));
+				placed.insert(sc);
+			}
+		}
+	}
+	for (auto &sc : scenes) {
+		if (!placed.count(sc))
+			sceneList->addTopLevelItem(MakeSceneRow(sc, dests));
+	}
+	for (auto &[f, expanded] : folders)
+		f->setExpanded(expanded);
+
+	for (QTreeWidgetItem *row : SceneRows(sceneList)) {
+		if (preview && row->data(0, Qt::UserRole).toString() == QString::fromUtf8(obs_source_get_uuid(preview)))
+			sceneList->setCurrentItem(row);
+	}
+	refreshingScenes = false;
+
+	/* L'ordre d'OBS suit la liste (dossiers dépliés). */
+	QStringList order;
+	for (QTreeWidgetItem *row : SceneRows(sceneList))
+		order << row->text(0);
+	QStringList obsOrder;
+	for (auto &sc : scenes)
+		obsOrder << QString::fromUtf8(obs_source_get_name(sc));
+	if (order != obsOrder)
+		ReorderObsScenes(order);
+
+	RefreshTally();
+}
+
+void StudioWindow::SaveSceneTree()
+{
+	OBSDataArrayAutoRelease tree = obs_data_array_create();
+	for (int i = 0; i < sceneList->topLevelItemCount(); i++) {
+		QTreeWidgetItem *top = sceneList->topLevelItem(i);
+		OBSDataAutoRelease entry = obs_data_create();
+		if (top->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER) {
+			obs_data_set_string(entry, "folder", top->text(0).toUtf8().constData());
+			obs_data_set_bool(entry, "expanded", top->isExpanded());
+			OBSDataArrayAutoRelease children = obs_data_array_create();
+			for (int k = 0; k < top->childCount(); k++) {
+				OBSDataAutoRelease c = obs_data_create();
+				obs_data_set_string(c, "uuid",
+						    top->child(k)->data(0, Qt::UserRole).toString().toUtf8());
+				obs_data_array_push_back(children, c);
+			}
+			obs_data_set_array(entry, "scenes", children);
+		} else {
+			obs_data_set_string(entry, "scene", top->data(0, Qt::UserRole).toString().toUtf8().constData());
+		}
+		obs_data_array_push_back(tree, entry);
+	}
+	Manager::Get().SetSceneTree(tree);
+}
+
 void StudioWindow::ApplySceneOrderFromList()
 {
 	sceneOrderPending = false;
-	QStringList order;
-	for (int i = 0; i < sceneList->count(); i++)
-		order << sceneList->item(i)->text();
-	if (!ReorderObsScenes(order))
-		obs_log(LOG_WARNING, "liste des scènes d'OBS introuvable : ordre non modifié");
+	/* Pas de dossier dans un dossier, ni de scène dans une scène : on
+	 * remet à plat ce que le glisser-déposer aurait imbriqué. */
+	{
+		const QSignalBlocker blocker(sceneList);
+		refreshingScenes = true;
+		for (int i = 0; i < sceneList->topLevelItemCount(); i++) {
+			QTreeWidgetItem *top = sceneList->topLevelItem(i);
+			const bool isFolder = top->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
+			for (int k = top->childCount() - 1; k >= 0; k--) {
+				QTreeWidgetItem *child = top->child(k);
+				const bool childFolder = child->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
+				if (!isFolder || childFolder) {
+					top->takeChild(k);
+					sceneList->insertTopLevelItem(i + 1, child);
+				}
+			}
+		}
+		refreshingScenes = false;
+	}
+	SaveSceneTree();
 	RefreshScenes();
 }
 
 void StudioWindow::MoveScene(int delta)
 {
-	const int row = sceneList->currentRow();
-	if (row < 0)
+	QTreeWidgetItem *item = sceneList->currentItem();
+	if (!item)
 		return;
-	const int target = std::clamp(row + delta, 0, sceneList->count() - 1);
+	QTreeWidgetItem *parent = item->parent();
+	const int count = parent ? parent->childCount() : sceneList->topLevelItemCount();
+	const int row = parent ? parent->indexOfChild(item) : sceneList->indexOfTopLevelItem(item);
+	const int target = std::clamp(row + delta, 0, count - 1);
 	if (target == row)
 		return;
 	{
 		const QSignalBlocker blocker(sceneList);
 		refreshingScenes = true;
-		QListWidgetItem *item = sceneList->takeItem(row);
-		sceneList->insertItem(target, item);
+		const bool expanded = item->isExpanded();
+		if (parent) {
+			parent->takeChild(row);
+			parent->insertChild(target, item);
+		} else {
+			sceneList->takeTopLevelItem(row);
+			sceneList->insertTopLevelItem(target, item);
+		}
+		item->setExpanded(expanded);
 		sceneList->setCurrentItem(item);
 		refreshingScenes = false;
 	}
 	ApplySceneOrderFromList();
+}
+
+void StudioWindow::NewSceneFolder()
+{
+	bool ok = false;
+	int n = 1;
+	for (int i = 0; i < sceneList->topLevelItemCount(); i++) {
+		if (sceneList->topLevelItem(i)->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER)
+			n++;
+	}
+	const QString name = QInputDialog::getText(this, Tr("MDS.NewSceneFolder"), Tr("MDS.Name"), QLineEdit::Normal,
+						   QString("%1 %2").arg(Tr("MDS.FolderName")).arg(n), &ok)
+				     .trimmed();
+	if (!ok || name.isEmpty())
+		return;
+
+	/* Les scènes sélectionnées entrent dans le nouveau dossier. */
+	std::vector<QTreeWidgetItem *> selected;
+	for (QTreeWidgetItem *row : sceneList->selectedItems()) {
+		if (row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_SCENE)
+			selected.push_back(row);
+	}
+	{
+		const QSignalBlocker blocker(sceneList);
+		refreshingScenes = true;
+		QTreeWidgetItem *folder = MakeFolderRow(name);
+		int at = sceneList->topLevelItemCount();
+		if (!selected.empty()) {
+			QTreeWidgetItem *first = selected.front();
+			at = sceneList->indexOfTopLevelItem(first->parent() ? first->parent() : first);
+		}
+		sceneList->insertTopLevelItem(std::max(0, at), folder);
+		for (QTreeWidgetItem *row : selected) {
+			if (QTreeWidgetItem *p = row->parent())
+				p->removeChild(row);
+			else
+				sceneList->takeTopLevelItem(sceneList->indexOfTopLevelItem(row));
+			folder->addChild(row);
+		}
+		folder->setExpanded(true);
+		refreshingScenes = false;
+	}
+	ApplySceneOrderFromList();
+}
+
+void StudioWindow::RenameSceneFolder(QTreeWidgetItem *folder)
+{
+	if (!folder)
+		return;
+	bool ok = false;
+	const QString name = QInputDialog::getText(this, Tr("MDS.RenameFolder"), Tr("MDS.Name"), QLineEdit::Normal,
+						   folder->text(0), &ok)
+				     .trimmed();
+	if (!ok || name.isEmpty())
+		return;
+	folder->setText(0, name);
+	folder->setData(0, Qt::UserRole, name);
+	SaveSceneTree();
 }
 
 void StudioWindow::ApplySourceOrderFromList()
@@ -1237,15 +1528,30 @@ void StudioWindow::ApplySourceOrderFromList()
 	if (!s)
 		return;
 	if (TileWidget *tile = ActiveTile()) {
-		if (QListWidgetItem *row = sourceList->currentItem())
-			tile->SetSelectedItem(row->data(Qt::UserRole).toLongLong());
+		if (QTreeWidgetItem *row = sourceList->currentItem(); row && !row->parent())
+			tile->SetSelectedItem(row->data(0, Qt::UserRole).toLongLong());
 	}
 	Undo::PushSceneState(s);
+	/* Un élément lâché dans un autre est remis au premier niveau. */
+	{
+		const QSignalBlocker blocker(sourceList);
+		for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
+			QTreeWidgetItem *top = sourceList->topLevelItem(i);
+			for (int k = top->childCount() - 1; k >= 0; k--) {
+				QTreeWidgetItem *child = top->child(k);
+				if (child->data(0, Qt::UserRole + 1).toLongLong() !=
+				    top->data(0, Qt::UserRole).toLongLong()) {
+					top->takeChild(k);
+					sourceList->insertTopLevelItem(i + 1, child);
+				}
+			}
+		}
+	}
 	/* Haut de la liste = devant : on place du fond vers l'avant. */
-	const int n = sourceList->count();
+	const int n = sourceList->topLevelItemCount();
 	for (int pos = 0; pos < n; pos++) {
-		QListWidgetItem *row = sourceList->item(n - 1 - pos);
-		obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong());
+		QTreeWidgetItem *row = sourceList->topLevelItem(n - 1 - pos);
+		obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(s, row->data(0, Qt::UserRole).toLongLong());
 		if (item)
 			obs_sceneitem_set_order_position(item, pos);
 	}
@@ -1255,16 +1561,16 @@ void StudioWindow::ApplySourceOrderFromList()
 
 OBSSource StudioWindow::SelectedScene() const
 {
-	QListWidgetItem *row = sceneList->currentItem();
-	if (!row)
+	QTreeWidgetItem *row = sceneList->currentItem();
+	if (!row || row->data(0, Qt::UserRole + 1).toInt() != SCENE_ROW_SCENE)
 		return nullptr;
-	OBSSourceAutoRelease s = obs_get_source_by_uuid(row->data(Qt::UserRole).toString().toUtf8().constData());
+	OBSSourceAutoRelease s = obs_get_source_by_uuid(row->data(0, Qt::UserRole).toString().toUtf8().constData());
 	return OBSSource(s.Get());
 }
 
 void StudioWindow::AddScene()
 {
-	std::string name = QString("%1 %2").arg(Tr("MDS.Scene")).arg(sceneList->count() + 1).toStdString();
+	std::string name = QString("%1 %2").arg(Tr("MDS.Scene")).arg(Manager::MainScenes().size() + 1).toStdString();
 	std::set<Destination *> coverage;
 	while (true) {
 		if (!Dialogs::EditScene(this, nullptr, name, coverage, true))
@@ -1331,12 +1637,39 @@ void StudioWindow::RemoveScene(obs_source_t *scene)
 void StudioWindow::RemoveSelectedScenes()
 {
 	std::vector<OBSSource> scenes;
-	for (QListWidgetItem *row : sceneList->selectedItems()) {
+	std::vector<QTreeWidgetItem *> folders;
+	for (QTreeWidgetItem *row : sceneList->selectedItems()) {
+		if (row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER) {
+			folders.push_back(row);
+			continue;
+		}
 		OBSSourceAutoRelease s =
-			obs_get_source_by_uuid(row->data(Qt::UserRole).toString().toUtf8().constData());
+			obs_get_source_by_uuid(row->data(0, Qt::UserRole).toString().toUtf8().constData());
 		if (s)
 			scenes.emplace_back(s.Get());
 	}
+
+	/* Dossiers : seul le dossier est retiré, ses scènes restent. */
+	if (!folders.empty()) {
+		const QString question = folders.size() == 1
+						 ? Tr("MDS.ConfirmRemoveFolder").arg(folders.front()->text(0))
+						 : Tr("MDS.ConfirmRemoveFolders").arg(int(folders.size()));
+		if (QMessageBox::question(this, Tr("MDS.RemoveFolder"), question) == QMessageBox::Yes) {
+			const QSignalBlocker blocker(sceneList);
+			refreshingScenes = true;
+			for (QTreeWidgetItem *f : folders) {
+				int at = sceneList->indexOfTopLevelItem(f);
+				while (f->childCount() > 0)
+					sceneList->insertTopLevelItem(++at, f->takeChild(0));
+				delete sceneList->takeTopLevelItem(sceneList->indexOfTopLevelItem(f));
+			}
+			refreshingScenes = false;
+			ApplySceneOrderFromList();
+		}
+		if (scenes.empty())
+			return;
+	}
+
 	if (scenes.empty())
 		return;
 	if (scenes.size() == 1) {
@@ -1354,9 +1687,32 @@ void StudioWindow::RemoveSelectedScenes()
 /* Sources                                                              */
 /* ------------------------------------------------------------------ */
 
+static QTreeWidgetItem *MakeSourceRow(obs_sceneitem_t *item, int64_t parentId)
+{
+	obs_source_t *src = obs_sceneitem_get_source(item);
+	auto *row = new QTreeWidgetItem();
+	row->setText(0, QString::fromUtf8(obs_source_get_name(src)));
+	Qt::ItemFlags flags = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
+	/* Seuls les éléments de premier niveau se réordonnent à la souris ;
+	 * rien ne se dépose dans un groupe (Grouper / Dissocier pour cela). */
+	if (!parentId)
+		flags |= Qt::ItemIsDragEnabled;
+	row->setFlags(flags);
+	row->setCheckState(0, obs_sceneitem_visible(item) ? Qt::Checked : Qt::Unchecked);
+	row->setData(0, Qt::UserRole, qlonglong(obs_sceneitem_get_id(item)));
+	row->setData(0, Qt::UserRole + 1, qlonglong(parentId));
+	if (obs_sceneitem_is_group(item))
+		row->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_DirIcon));
+	return row;
+}
+
 void StudioWindow::RefreshSources()
 {
 	refreshingSources = true;
+	const int64_t childSelected = sourceList->currentItem() &&
+						      sourceList->currentItem()->data(0, Qt::UserRole + 1).toLongLong()
+					      ? sourceList->currentItem()->data(0, Qt::UserRole).toLongLong()
+					      : -1;
 	sourceList->clear();
 
 	TileWidget *tile = ActiveTile();
@@ -1374,29 +1730,62 @@ void StudioWindow::RefreshSources()
 	addSourceButton->setEnabled(s != nullptr);
 
 	if (s && tile) {
-		struct Ctx {
-			QListWidget *list;
-			int64_t selected;
-		} ctx{sourceList, tile->SelectedItem()};
+		const int64_t selected = tile->SelectedItem();
+		/* Haut de la pile en premier, comme OBS. */
+		std::vector<obs_sceneitem_t *> items;
 		obs_scene_enum_items(
 			s,
 			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-				auto *c = static_cast<Ctx *>(param);
-				obs_source_t *src = obs_sceneitem_get_source(item);
-				auto *row = new QListWidgetItem(QString::fromUtf8(obs_source_get_name(src)));
-				row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
-				row->setCheckState(obs_sceneitem_visible(item) ? Qt::Checked : Qt::Unchecked);
-				row->setData(Qt::UserRole, qlonglong(obs_sceneitem_get_id(item)));
-				/* Haut de la pile en premier, comme OBS. */
-				c->list->insertItem(0, row);
-				if (obs_sceneitem_get_id(item) == c->selected)
-					c->list->setCurrentItem(row);
+				static_cast<std::vector<obs_sceneitem_t *> *>(param)->insert(
+					static_cast<std::vector<obs_sceneitem_t *> *>(param)->begin(), item);
 				return true;
 			},
-			&ctx);
+			&items);
+		for (obs_sceneitem_t *item : items) {
+			QTreeWidgetItem *row = MakeSourceRow(item, 0);
+			sourceList->addTopLevelItem(row);
+			const int64_t id = obs_sceneitem_get_id(item);
+			if (obs_sceneitem_is_group(item)) {
+				std::vector<obs_sceneitem_t *> children;
+				obs_scene_enum_items(
+					obs_sceneitem_group_get_scene(item),
+					[](obs_scene_t *, obs_sceneitem_t *child, void *param) {
+						static_cast<std::vector<obs_sceneitem_t *> *>(param)->insert(
+							static_cast<std::vector<obs_sceneitem_t *> *>(param)->begin(),
+							child);
+						return true;
+					},
+					&children);
+				for (obs_sceneitem_t *child : children) {
+					QTreeWidgetItem *c = MakeSourceRow(child, id);
+					row->addChild(c);
+					if (id == selected && obs_sceneitem_get_id(child) == childSelected)
+						sourceList->setCurrentItem(c);
+				}
+				OBSDataAutoRelease priv = obs_sceneitem_get_private_settings(item);
+				row->setExpanded(!obs_data_get_bool(priv, "collapsed"));
+			}
+			if (id == selected && !sourceList->currentItem())
+				sourceList->setCurrentItem(row);
+		}
 	}
 	refreshingSources = false;
 	UpdateMediaControls();
+}
+
+OBSSceneItem StudioWindow::ItemFromRow(QTreeWidgetItem *row) const
+{
+	obs_scene_t *s = ActiveScene();
+	if (!row || !s)
+		return nullptr;
+	const int64_t id = row->data(0, Qt::UserRole).toLongLong();
+	const int64_t parent = row->data(0, Qt::UserRole + 1).toLongLong();
+	if (!parent)
+		return OBSSceneItem(obs_scene_find_sceneitem_by_id(s, id));
+	obs_sceneitem_t *group = obs_scene_find_sceneitem_by_id(s, parent);
+	if (!group || !obs_sceneitem_is_group(group))
+		return nullptr;
+	return OBSSceneItem(obs_scene_find_sceneitem_by_id(obs_sceneitem_group_get_scene(group), id));
 }
 
 OBSSceneItem StudioWindow::CurrentItem() const
@@ -1406,8 +1795,14 @@ OBSSceneItem StudioWindow::CurrentItem() const
 	if (!s || !tile)
 		return nullptr;
 	int64_t id = tile->SelectedItem();
-	if (id < 0 && sourceList->currentItem())
-		id = sourceList->currentItem()->data(Qt::UserRole).toLongLong();
+	/* Élément d'un groupe choisi dans la liste : c'est lui qu'on édite. */
+	if (QTreeWidgetItem *row = sourceList->currentItem()) {
+		const int64_t parent = row->data(0, Qt::UserRole + 1).toLongLong();
+		if (parent && (id < 0 || id == parent))
+			return ItemFromRow(row);
+		if (id < 0)
+			id = row->data(0, Qt::UserRole).toLongLong();
+	}
 	return id >= 0 ? OBSSceneItem(obs_scene_find_sceneitem_by_id(s, id)) : OBSSceneItem();
 }
 
@@ -1635,6 +2030,9 @@ void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 			AfterEdit();
 			RefreshSources();
 		});
+		if (obs_sceneitem_is_group(item))
+			connect(menu.addAction(Tr("MDS.RenameGroup")), &QAction::triggered, this,
+				&StudioWindow::EditRenameGroup);
 		menu.addSeparator();
 	}
 	for (QAction *a : editActions) {
@@ -1686,6 +2084,72 @@ void StudioWindow::EditPaste()
 	AfterEdit();
 }
 
+/* Grouper les sources sélectionnées (premier niveau) dans un groupe OBS. */
+void StudioWindow::EditGroup()
+{
+	obs_scene_t *s = ActiveScene();
+	if (!s)
+		return;
+	std::vector<obs_sceneitem_t *> items;
+	for (QTreeWidgetItem *row : sourceList->selectedItems()) {
+		if (row->parent())
+			continue;
+		if (obs_sceneitem_t *it = obs_scene_find_sceneitem_by_id(s, row->data(0, Qt::UserRole).toLongLong()))
+			items.push_back(it);
+	}
+	if (items.empty()) {
+		OBSSceneItem current = CurrentItem();
+		if (current && obs_sceneitem_get_scene(current) == s)
+			items.push_back(current);
+	}
+	if (items.empty())
+		return;
+
+	std::string name;
+	for (int n = 1;; n++) {
+		name = QString("%1 %2").arg(Tr("MDS.GroupName")).arg(n).toStdString();
+		OBSSourceAutoRelease existing = obs_get_source_by_name(name.c_str());
+		if (!existing)
+			break;
+	}
+	obs_sceneitem_t *group = obs_scene_insert_group(s, name.c_str(), items.data(), items.size());
+	if (!group)
+		return;
+	SelectItem(obs_sceneitem_get_id(group));
+	AfterEdit();
+}
+
+void StudioWindow::EditUngroup()
+{
+	OBSSceneItem item = CurrentItem();
+	if (!item || !obs_sceneitem_is_group(item))
+		return;
+	obs_sceneitem_group_ungroup(item);
+	SelectItem(-1);
+	AfterEdit();
+}
+
+void StudioWindow::EditRenameGroup()
+{
+	OBSSceneItem item = CurrentItem();
+	if (!item || !obs_sceneitem_is_group(item))
+		return;
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	bool ok = false;
+	const QString name = QInputDialog::getText(this, Tr("MDS.RenameGroup"), Tr("MDS.Name"), QLineEdit::Normal,
+						   QString::fromUtf8(obs_source_get_name(source)), &ok)
+				     .trimmed();
+	if (!ok || name.isEmpty())
+		return;
+	OBSSourceAutoRelease existing = obs_get_source_by_name(name.toUtf8().constData());
+	if (existing && existing.Get() != source) {
+		QMessageBox::warning(this, Tr("MDS.RenameGroup"), Tr("MDS.SourceExists"));
+		return;
+	}
+	obs_source_set_name(source, name.toUtf8().constData());
+	RefreshSources();
+}
+
 /* Coller une copie indépendante : nouvelle source (avec ses filtres), qui
  * n'est plus liée à l'originale. Une scène collée reste une référence (la
  * dupliquer créerait une nouvelle scène dans OBS). */
@@ -1732,10 +2196,9 @@ void StudioWindow::EditRemove()
 	 * celle sélectionnée dans l'aperçu. */
 	std::vector<OBSSceneItem> items;
 	if (sourceList->hasFocus() || sourceList->selectedItems().size() > 1) {
-		for (QListWidgetItem *row : sourceList->selectedItems()) {
-			if (obs_sceneitem_t *it =
-				    obs_scene_find_sceneitem_by_id(s, row->data(Qt::UserRole).toLongLong()))
-				items.emplace_back(it);
+		for (QTreeWidgetItem *row : sourceList->selectedItems()) {
+			if (OBSSceneItem it = ItemFromRow(row))
+				items.push_back(it);
 		}
 	}
 	if (items.empty()) {
@@ -1754,7 +2217,7 @@ void StudioWindow::EditRemove()
 		return;
 
 	for (auto &item : items) {
-		Undo::PushRemoved(s, item);
+		Undo::PushRemoved(obs_sceneitem_get_scene(item), item);
 		obs_sceneitem_remove(item);
 	}
 	SelectItem(-1);

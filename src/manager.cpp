@@ -358,6 +358,8 @@ void Manager::Save(obs_data_t *data) const
 	OBSSource preview = PreviewScene();
 	const char *uuid = preview ? obs_source_get_uuid(preview) : nullptr;
 	obs_data_set_string(data, "preview_scene", uuid ? uuid : "");
+	if (sceneTree)
+		obs_data_set_array(data, "scene_tree", sceneTree);
 }
 
 void Manager::ApplyLoad()
@@ -400,6 +402,8 @@ void Manager::ApplyLoad()
 		AdoptOrphanCanvases();
 		creatingScene = false;
 
+		OBSDataArrayAutoRelease tree = obs_data_get_array(data, "scene_tree");
+		sceneTree = tree.Get();
 		OBSSourceAutoRelease preview = obs_get_source_by_uuid(obs_data_get_string(data, "preview_scene"));
 		previewScene = preview ? OBSGetWeakRef(preview.Get()) : OBSWeakSource();
 	}
@@ -430,6 +434,7 @@ void Manager::Reset()
 	}
 	previewScene = nullptr;
 	programScene = nullptr;
+	sceneTree = nullptr;
 }
 
 /* ------------------------------------------------------------------ */
