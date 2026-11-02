@@ -147,6 +147,9 @@ private:
 	void OpenProjector(Destination *dest, bool fullscreen);
 	void ApplySceneOrderFromList();
 	void ApplySourceOrderFromList();
+	void MoveSceneRows(QTreeWidgetItem *target, int position);
+	void MoveSourceRows(QTreeWidgetItem *target, int position);
+	void RenameRow(QTreeWidget *tree, QTreeWidgetItem *row);
 	void MoveScene(int delta);
 	void RemoveSelectedScenes();
 	void SaveSceneTree();

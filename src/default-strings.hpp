@@ -246,4 +246,8 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.UngroupSources", "Ungroup"},
 	{"MDS.RenameGroup", "Rename group"},
 	{"MDS.GroupName", "Group"},
+	{"MDS.Rename", "Rename"},
+	{"MDS.GroupInFolder", "Group into a folder"},
+	{"MDS.GroupInFolderTip", "New folder (selected scenes go into it)"},
+	{"MDS.LockSource", "Lock position"},
 };
