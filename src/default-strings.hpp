@@ -250,4 +250,5 @@ static const DefaultString DEFAULT_STRINGS[] = {
 	{"MDS.GroupInFolder", "Group into a folder"},
 	{"MDS.GroupInFolderTip", "New folder (selected scenes go into it)"},
 	{"MDS.LockSource", "Lock position"},
+	{"MDS.FolderTakeNote", "Folders only organise the scene list. Select a scene to take it live."},
 };

@@ -76,6 +76,9 @@ public:
 		      int(OnViewport) == DropViewport);
 
 	std::function<void()> onDelete;
+	/* Bouton de la souris relâché (aussi après un glisser). */
+	std::function<void()> onReleased;
+	bool MousePressed() const { return pressed; }
 	/* target : ligne visée (nullptr = zone vide) ; position :
 	 * QAbstractItemView::DropIndicatorPosition. */
 	std::function<void(QTreeWidgetItem *target, int position)> onMove;
@@ -83,9 +86,13 @@ public:
 protected:
 	void mousePressEvent(QMouseEvent *event) override
 	{
+		/* Sur un élément (sélectionné ou non) : on le déplace. Depuis une
+		 * zone vide : sélection de plusieurs éléments. Ctrl / Maj : pas de
+		 * glisser, sélection seulement. */
 		QTreeWidgetItem *item = itemAt(event->position().toPoint());
 		const bool modifiers = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier);
-		setDragEnabled(item && item->isSelected() && !modifiers);
+		setDragEnabled(item && !modifiers);
+		pressed = event->button() == Qt::LeftButton;
 		QTreeWidget::mousePressEvent(event);
 	}
 
@@ -93,6 +100,14 @@ protected:
 	{
 		QTreeWidget::mouseReleaseEvent(event);
 		setDragEnabled(true);
+		Released();
+	}
+
+	void startDrag(Qt::DropActions actions) override
+	{
+		QTreeWidget::startDrag(actions);
+		/* Le glisser a consommé le relâchement du bouton. */
+		Released();
 	}
 
 	void keyPressEvent(QKeyEvent *event) override
@@ -104,6 +119,18 @@ protected:
 			return;
 		}
 		QTreeWidget::keyPressEvent(event);
+	}
+
+	void Released()
+	{
+		if (!pressed)
+			return;
+		pressed = false;
+		/* Après un éventuel dépôt (lui aussi différé). */
+		QTimer::singleShot(0, this, [this]() {
+			if (onReleased)
+				onReleased();
+		});
 	}
 
 	void dropEvent(QDropEvent *event) override
@@ -130,4 +157,7 @@ protected:
 			onMove(index.isValid() ? itemFromIndex(index) : nullptr, position);
 		});
 	}
+
+private:
+	bool pressed = false;
 };

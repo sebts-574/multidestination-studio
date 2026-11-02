@@ -385,6 +385,16 @@ void StudioWindow::BuildCentral()
 	cut->setToolTip(Tr("MDS.CutTip"));
 	connect(cut, &QPushButton::clicked, this, []() { Manager::Get().Take(true); });
 	controls->addWidget(cut);
+	transitionButton = transition;
+	cutButton = cut;
+	/* Dossier de scènes sélectionné : rien à prendre, on l'explique. */
+	folderTakeNote = new QLabel(Tr("MDS.FolderTakeNote"), monitors);
+	folderTakeNote->setWordWrap(true);
+	folderTakeNote->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+	folderTakeNote->setMaximumWidth(std::max(transition->sizeHint().width(), 110) + 30);
+	folderTakeNote->setStyleSheet("color: #ffb74d; font-size: 11px;");
+	folderTakeNote->hide();
+	controls->addWidget(folderTakeNote);
 	controls->addStretch(5);
 	layout->addLayout(controls);
 
@@ -408,15 +418,21 @@ void StudioWindow::BuildDocks()
 	connect(sceneList, &QTreeWidget::itemSelectionChanged, this, [this]() {
 		if (refreshingScenes)
 			return;
-		/* Ctrl + clic qui retire une scène de la sélection : l'Aperçu ne
-		 * change pas. */
-		QTreeWidgetItem *row = sceneList->currentItem();
-		if (!row || !row->isSelected())
+		UpdateTakeButtons();
+		/* Bouton encore enfoncé : l'Aperçu change au relâchement (sinon la
+		 * liste est reconstruite sous la souris et le glisser échoue). */
+		if (static_cast<OrganizerTree *>(sceneList)->MousePressed()) {
+			scenePreviewPending = true;
 			return;
-		OBSSource scene = SelectedScene();
-		if (scene)
-			Manager::Get().SetPreviewScene(scene);
+		}
+		ApplySceneSelection();
 	});
+	scenes->onReleased = [this]() {
+		if (!scenePreviewPending)
+			return;
+		scenePreviewPending = false;
+		ApplySceneSelection();
+	};
 	connect(sceneList, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem *row, int) {
 		if (refreshingScenes)
 			return;
@@ -1673,6 +1689,7 @@ void StudioWindow::RefreshScenes()
 	}
 	sceneList->verticalScrollBar()->setValue(scroll);
 	refreshingScenes = false;
+	UpdateTakeButtons();
 
 	/* L'ordre d'OBS suit la liste (dossiers dépliés). */
 	QStringList order;
@@ -1757,6 +1774,31 @@ void StudioWindow::MoveSceneRows(QTreeWidgetItem *target, int position)
 		return;
 	SaveSceneTree();
 	RefreshScenes();
+}
+
+void StudioWindow::ApplySceneSelection()
+{
+	/* Ctrl + clic qui retire une scène de la sélection, ou dossier : l'Aperçu
+	 * ne change pas. */
+	QTreeWidgetItem *row = sceneList->currentItem();
+	if (!row || !row->isSelected())
+		return;
+	OBSSource scene = SelectedScene();
+	if (scene)
+		Manager::Get().SetPreviewScene(scene);
+}
+
+/* Transition / Cut indisponibles quand un dossier est sélectionné : un
+ * dossier n'est qu'un rangement, il ne passe pas à l'antenne. */
+void StudioWindow::UpdateTakeButtons()
+{
+	if (!transitionButton || !sceneList)
+		return;
+	QTreeWidgetItem *row = sceneList->currentItem();
+	const bool folder = row && row->isSelected() && row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
+	transitionButton->setEnabled(!folder);
+	cutButton->setEnabled(!folder);
+	folderTakeNote->setVisible(folder);
 }
 
 void StudioWindow::RenameRow(QTreeWidget *tree, QTreeWidgetItem *row)

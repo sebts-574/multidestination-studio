@@ -2,7 +2,7 @@
 
 **Multidestination Studio** is a plugin for [OBS Studio](https://obsproject.com) that turns OBS into a multi-output show controller. It adds independent **destinations** (an LED wall, a set of blended projectors, stage monitors, the stream), each with its own resolution, Preview and Program, all driven from one full-screen studio view with a single TAKE.
 
-Version **1.0.6** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
+Version **1.0.7** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
 
 ## Features
 
@@ -23,9 +23,9 @@ Download the file for your system from the [Releases](https://github.com/sebts-5
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10/11 (x64) | `multidestination-studio-1.0.6-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
+| Windows 10/11 (x64) | `multidestination-studio-1.0.7-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
 | macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
-| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.6-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.6-x86_64-linux-gnu.deb` |
+| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.7-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.7-x86_64-linux-gnu.deb` |
 
 Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
 

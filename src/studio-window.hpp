@@ -189,6 +189,12 @@ private:
 	QTreeWidget *sceneList = nullptr;
 	QTreeWidget *sourceList = nullptr;
 	QToolButton *addSourceButton = nullptr;
+	QPushButton *transitionButton = nullptr;
+	QPushButton *cutButton = nullptr;
+	QLabel *folderTakeNote = nullptr;
+	bool scenePreviewPending = false;
+	void UpdateTakeButtons();
+	void ApplySceneSelection();
 	AudioMixer *mixer = nullptr;
 	MediaControls *mediaControls = nullptr;
 	QPushButton *modifyPgmButton = nullptr;
