@@ -75,7 +75,8 @@ void StyleTree(QTreeWidget *tree, bool trailingIcons)
 	tree->setFrameShape(QFrame::NoFrame);
 	tree->setIconSize(QSize(16, 16));
 	tree->setStyleSheet(
-		QString("QTreeView { border: none; outline: 0; padding: 2px; }"
+		QString("QTreeView { border: none; outline: 0; padding: 2px; show-decoration-selected: 0; }"
+			"QTreeView::branch { background: transparent; border: none; image: none; }"
 			"QTreeView::item { padding: 4px 5px; %1 border: 1px solid transparent;"
 			" border-radius: 4px; color: palette(text); }"
 			"QTreeView::item:selected { background-color: %2; color: palette(highlighted-text); }"
@@ -226,6 +227,25 @@ QIcon PlusIcon()
 	return PaintedIcon(color, [](QPainter &p) {
 		p.drawLine(QPointF(8, 3), QPointF(8, 13));
 		p.drawLine(QPointF(3, 8), QPointF(13, 8));
+	});
+}
+
+QIcon FolderPlusIcon()
+{
+	const QColor color = QApplication::palette().color(QPalette::ButtonText);
+	return PaintedIcon(color, [](QPainter &p) {
+		QPainterPath folder;
+		folder.moveTo(1.5, 4);
+		folder.lineTo(5.5, 4);
+		folder.lineTo(7, 5.5);
+		folder.lineTo(13, 5.5);
+		folder.lineTo(13, 8);
+		folder.moveTo(9, 13.5);
+		folder.lineTo(1.5, 13.5);
+		folder.lineTo(1.5, 4);
+		p.drawPath(folder);
+		p.drawLine(QPointF(12.5, 9.5), QPointF(12.5, 15));
+		p.drawLine(QPointF(9.75, 12.25), QPointF(15.25, 12.25));
 	});
 }
 

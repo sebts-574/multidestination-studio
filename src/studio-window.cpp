@@ -59,7 +59,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCursor>
 #include <QStyle>
 #include <QTimer>
+#include <QMouseEvent>
 #include <QToolBar>
+#include <QWidgetAction>
 #include <QTreeWidget>
 #include <set>
 #include <QToolButton>
@@ -313,16 +315,36 @@ void StudioWindow::BuildCentral()
 	controls->addWidget(modifyPgmButton);
 	controls->addStretch(3);
 
+	/* Comme le mode Studio d'OBS : Transition et son menu « ⋮ », puis les
+	 * transitions rapides. */
+	auto *transitionRow = new QHBoxLayout();
+	transitionRow->setSpacing(4);
 	auto *transition = new QPushButton(Tr("MDS.Transition"), monitors);
 	transition->setToolTip(Tr("MDS.TransitionTip"));
 	connect(transition, &QPushButton::clicked, this, []() { Manager::Get().Take(false); });
-	controls->addWidget(transition);
-	auto *cut = new QPushButton(Tr("MDS.Cut"), monitors);
-	cut->setToolTip(Tr("MDS.CutTip"));
-	connect(cut, &QPushButton::clicked, this, []() { Manager::Get().Take(true); });
-	controls->addWidget(cut);
+	transitionRow->addWidget(transition, 1);
+	auto *options = new QPushButton(monitors);
+	options->setToolTip(Tr("MDS.TransitionOptions"));
+	options->setText("⋮");
+	options->setFixedWidth(30);
+	SetIconClass(options, "icon-dots-vert");
+	connect(options, &QPushButton::clicked, this, [this, options]() {
+		Manager &m = Manager::Get();
+		QMenu menu(this);
+		QAction *swap = menu.addAction(Tr("MDS.TransitionOptionSwap"));
+		swap->setCheckable(true);
+		swap->setChecked(m.SwapAfterTake());
+		connect(swap, &QAction::toggled, this, [](bool on) { Manager::Get().SetSwapAfterTake(on); });
+		QAction *all = menu.addAction(Tr("MDS.TransitionOptionShowAll"));
+		all->setCheckable(true);
+		all->setChecked(m.ShowAllDestinations());
+		connect(all, &QAction::toggled, this, [](bool on) { Manager::Get().SetShowAllDestinations(on); });
+		menu.exec(options->mapToGlobal(QPoint(0, options->height())));
+	});
+	transitionRow->addWidget(options);
+	controls->addLayout(transitionRow);
 	transitionButton = transition;
-	cutButton = cut;
+	cutButton = nullptr;
 	/* Dossier de scènes sélectionné : rien à prendre, on l'explique. */
 	folderTakeNote = new QLabel(Tr("MDS.FolderTakeNote"), monitors);
 	folderTakeNote->setWordWrap(true);
@@ -332,9 +354,20 @@ void StudioWindow::BuildCentral()
 	folderTakeNote->hide();
 	controls->addWidget(folderTakeNote);
 	/* Transitions rapides, comme le mode Studio d'OBS. */
+	auto *quickRow = new QHBoxLayout();
+	quickRow->setContentsMargins(0, 8, 0, 0);
+	quickRow->addWidget(new QLabel(Tr("MDS.QuickTransitions"), monitors), 1);
+	auto *quickAdd = new QPushButton(monitors);
+	quickAdd->setIcon(DockStyle::PlusIcon());
+	quickAdd->setToolTip(Tr("MDS.QuickTransitionAdd"));
+	quickAdd->setFixedWidth(30);
+	SetIconClass(quickAdd, "icon-plus");
+	connect(quickAdd, &QPushButton::clicked, this, [this, quickAdd]() { AddQuickTransition(quickAdd); });
+	quickRow->addWidget(quickAdd);
+	controls->addLayout(quickRow);
 	quickPanel = new QWidget(monitors);
 	auto *quickLayout = new QVBoxLayout(quickPanel);
-	quickLayout->setContentsMargins(0, 8, 0, 0);
+	quickLayout->setContentsMargins(0, 2, 0, 0);
 	quickLayout->setSpacing(4);
 	controls->addWidget(quickPanel);
 	controls->addStretch(5);
@@ -469,13 +502,8 @@ void StudioWindow::BuildDocks()
 				     if (OBSSource scene = SelectedScene())
 					     obs_frontend_open_source_filters(scene);
 			     });
-	{
-		QIcon folderIcon = DockStyle::MainIcon("groupIcon");
-		if (folderIcon.isNull())
-			folderIcon = st->standardIcon(QStyle::SP_FileDialogNewFolder);
-		DockStyle::AddAction(sceneBar, nullptr, folderIcon, Tr("MDS.GroupInFolderTip"),
-				     [this]() { NewSceneFolder(); });
-	}
+	DockStyle::AddAction(sceneBar, nullptr, DockStyle::FolderPlusIcon(), Tr("MDS.GroupInFolderTip"),
+			     [this]() { NewSceneFolder(); });
 	sceneBar->addSeparator();
 	DockStyle::AddAction(sceneBar, "icon-up", st->standardIcon(QStyle::SP_ArrowUp), Tr("MDS.MoveUp"),
 			     [this]() { MoveScene(-1); });
@@ -591,12 +619,8 @@ void StudioWindow::BuildDocks()
 	DockStyle::AddAction(sourceBar, "icon-gear", st->standardIcon(QStyle::SP_FileDialogDetailedView),
 			     Tr("MDS.Properties"), [this]() { EditProperties(); });
 	sourceBar->addSeparator();
-	{
-		QIcon groupIcon = DockStyle::MainIcon("groupIcon");
-		if (groupIcon.isNull())
-			groupIcon = st->standardIcon(QStyle::SP_FileDialogNewFolder);
-		DockStyle::AddAction(sourceBar, nullptr, groupIcon, Tr("MDS.GroupSources"), [this]() { EditGroup(); });
-	}
+	DockStyle::AddAction(sourceBar, nullptr, DockStyle::FolderPlusIcon(), Tr("MDS.NewSourceFolderTip"),
+			     [this]() { EditGroup(); });
 	sourceBar->addSeparator();
 	DockStyle::AddAction(sourceBar, "icon-up", st->standardIcon(QStyle::SP_ArrowUp), Tr("MDS.MoveUp"),
 			     [this]() { EditMoveUp(); });
@@ -907,8 +931,6 @@ void StudioWindow::BuildMenus()
 		if (Dialogs::EditDisplaySetting(this, showAll))
 			Manager::Get().SetShowAllDestinations(showAll);
 	});
-	connect(settingsMenu->addAction(Tr("MDS.SettingCompanionMenu")), &QAction::triggered, this,
-		&StudioWindow::EditCompanionSetting);
 	settingsMenu->addSeparator();
 	connect(settingsMenu->addAction(Tr("MDS.SettingCuesMenu")), &QAction::triggered, this,
 		&StudioWindow::EditCuesSetting);
@@ -1037,7 +1059,7 @@ void StudioWindow::Open()
 	/* La destination par défaut est protégée comme les autres par le mode
 	 * Studio d'OBS (« Dupliquer la scène ») : on l'active si besoin. */
 	if (!obs_frontend_preview_program_mode_active()) {
-		Manager::Get().EnableObsStudioMode();
+		obs_frontend_set_preview_program_mode(true);
 		enabledObsStudioMode = true;
 	}
 
@@ -1175,18 +1197,6 @@ void StudioWindow::EditCuesSetting()
 	Dialogs::EditSwitchSetting(this, Tr("MDS.SettingCues"), Tr("MDS.SettingCuesNote"),
 				   {{Tr("MDS.SettingCuesActivate"), Manager::Get().CuesEnabled(), [](bool on) {
 					     Manager::Get().SetCuesEnabled(on);
-				     }}});
-}
-
-void StudioWindow::EditCompanionSetting()
-{
-	Dialogs::EditSwitchSetting(this, Tr("MDS.SettingCompanion"), Tr("MDS.SettingCompanionNote"),
-				   {{Tr("MDS.SettingFollowPreview"), Manager::Get().FollowObsPreview(),
-				     [](bool on) {
-					     Manager::Get().SetFollowObsPreview(on);
-				     }},
-				    {Tr("MDS.SettingFollowProgram"), Manager::Get().FollowObsProgram(), [](bool on) {
-					     Manager::Get().SetFollowObsProgram(on);
 				     }}});
 }
 
@@ -1618,6 +1628,7 @@ static QTreeWidgetItem *MakeFolderRow(const QString &name)
 	row->setText(0, name);
 	row->setData(0, Qt::UserRole, name);
 	row->setData(0, Qt::UserRole + 1, SCENE_ROW_FOLDER);
+	row->setData(0, OrganizerTree::ContainerRole, true);
 	row->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled |
 		      Qt::ItemIsEditable);
 	QIcon icon = DockStyle::MainIcon("groupIcon");
@@ -1852,7 +1863,8 @@ void StudioWindow::UpdateTakeButtons()
 	QTreeWidgetItem *row = sceneList->currentItem();
 	const bool folder = row && row->isSelected() && row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
 	transitionButton->setEnabled(!folder);
-	cutButton->setEnabled(!folder);
+	if (cutButton)
+		cutButton->setEnabled(!folder);
 	for (QPushButton *b : quickButtons)
 		b->setEnabled(!folder && b->text() != Tr("MDS.QuickTransitionMissing"));
 	folderTakeNote->setVisible(folder);
@@ -2215,6 +2227,7 @@ static QTreeWidgetItem *MakeSourceRow(obs_sceneitem_t *item, int64_t parentId, c
 	row->setData(0, Qt::UserRole, qlonglong(obs_sceneitem_get_id(item)));
 	row->setData(0, Qt::UserRole + 1, qlonglong(parentId));
 	row->setData(0, Qt::UserRole + 2, group);
+	row->setData(0, OrganizerTree::ContainerRole, group);
 	/* Icône du type de source, comme OBS. */
 	QIcon icon = DockStyle::SourceIcon(src);
 	if (icon.isNull() && group)
@@ -2659,11 +2672,10 @@ void StudioWindow::EditGroup()
 	}
 	if (items.empty()) {
 		OBSSceneItem current = CurrentItem();
-		if (current && obs_sceneitem_get_scene(current) == s)
+		if (current && obs_sceneitem_get_scene(current) == s && sourceList->currentItem() &&
+		    sourceList->currentItem()->isSelected())
 			items.push_back(current);
 	}
-	if (items.empty())
-		return;
 
 	std::string name;
 	for (int n = 1;; n++) {
@@ -2672,11 +2684,19 @@ void StudioWindow::EditGroup()
 		if (!existing)
 			break;
 	}
-	obs_sceneitem_t *group = obs_scene_insert_group(s, name.c_str(), items.data(), items.size());
+	/* Rien de sélectionné : nouveau dossier vide (groupe d'OBS). */
+	obs_sceneitem_t *group = items.empty() ? obs_scene_add_group2(s, name.c_str(), true)
+					       : obs_scene_insert_group(s, name.c_str(), items.data(), items.size());
 	if (!group)
 		return;
-	SelectItem(obs_sceneitem_get_id(group));
+	const int64_t id = obs_sceneitem_get_id(group);
+	SelectItem(id);
 	AfterEdit();
+	/* Nom modifiable tout de suite, comme dans OBS. */
+	for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
+		if (sourceList->topLevelItem(i)->data(0, Qt::UserRole).toLongLong() == id)
+			RenameRow(sourceList, sourceList->topLevelItem(i));
+	}
 }
 
 void StudioWindow::EditUngroup()
@@ -2960,12 +2980,39 @@ void StudioWindow::CreateObsTransition(const QString &displayName)
 	add->click();
 }
 
+/* Bouton avec menu, comme celui d'OBS : clic sur la flèche = menu, clic
+ * ailleurs = action. */
+class MenuButton : public QPushButton {
+public:
+	using QPushButton::QPushButton;
+
+protected:
+	void mousePressEvent(QMouseEvent *event) override
+	{
+		if (menu() && width() - event->position().x() <= 30)
+			showMenu();
+		else if (menu())
+			setDown(true);
+		else
+			QPushButton::mousePressEvent(event);
+	}
+};
+
+static QString QuickTransitionText(const Manager::QuickTransition &q)
+{
+	OBSSource tr = Manager::FindTransition(q.transition);
+	if (!tr)
+		return Tr("MDS.QuickTransitionMissing");
+	QString text = QString::fromUtf8(obs_source_get_name(tr));
+	if (!obs_transition_fixed(tr))
+		text += QString(" (%1ms)").arg(q.durationMs);
+	return text;
+}
+
 void StudioWindow::RefreshQuickTransitions()
 {
 	if (!quickPanel)
 		return;
-	for (QPushButton *b : quickButtons)
-		b->deleteLater();
 	quickButtons.clear();
 	QLayout *layout = quickPanel->layout();
 	while (QLayoutItem *item = layout->takeAt(0)) {
@@ -2976,14 +3023,14 @@ void StudioWindow::RefreshQuickTransitions()
 
 	const auto &list = Manager::Get().QuickTransitions();
 	for (size_t i = 0; i < list.size(); i++) {
-		OBSSource tr = Manager::FindTransition(list[i].transition);
-		QString text = tr ? QString::fromUtf8(obs_source_get_name(tr)) : Tr("MDS.QuickTransitionMissing");
-		if (tr && !obs_transition_fixed(tr))
-			text += QString(" (%1 ms)").arg(list[i].durationMs);
-		auto *button = new QPushButton(text, quickPanel);
-		button->setEnabled(tr != nullptr);
-		button->setContextMenuPolicy(Qt::CustomContextMenu);
+		auto *button = new MenuButton(QuickTransitionText(list[i]), quickPanel);
 		const int index = int(i);
+		auto *menu = new QMenu(button);
+		connect(menu, &QMenu::aboutToShow, this, [this, menu, index]() {
+			menu->clear();
+			FillQuickTransitionMenu(menu, index);
+		});
+		button->setMenu(menu);
 		connect(button, &QPushButton::clicked, this, [index]() {
 			const auto &l = Manager::Get().QuickTransitions();
 			if (size_t(index) >= l.size())
@@ -2992,20 +3039,9 @@ void StudioWindow::RefreshQuickTransitions()
 			if (t)
 				Manager::Get().Take(obs_transition_fixed(t), t, l[size_t(index)].durationMs);
 		});
-		connect(button, &QPushButton::customContextMenuRequested, this, [this, button, index](const QPoint &p) {
-			ShowQuickTransitionMenu(index, button->mapToGlobal(p));
-		});
 		layout->addWidget(button);
 		quickButtons.push_back(button);
 	}
-	auto *add = new QToolButton(quickPanel);
-	add->setIcon(DockStyle::PlusIcon());
-	add->setToolTip(Tr("MDS.QuickTransitionAdd"));
-	add->setAutoRaise(true);
-	SetIconClass(add, "icon-plus");
-	connect(add, &QToolButton::clicked, this, [this, add]() { AddQuickTransition(add); });
-	layout->addWidget(add);
-	layout->setAlignment(add, Qt::AlignHCenter);
 	UpdateTakeButtons();
 }
 
@@ -3033,62 +3069,81 @@ static void FillTransitionChoices(QMenu *menu, const std::function<void(obs_sour
 	}
 }
 
+static QSpinBox *DurationSpin(int value, QWidget *parent)
+{
+	auto *spin = new QSpinBox(parent);
+	spin->setRange(50, 20000);
+	spin->setSingleStep(50);
+	spin->setSuffix(" ms");
+	spin->setValue(value);
+	return spin;
+}
+
+/* « + » : la transition choisie est ajoutée avec la durée du bas du menu. */
 void StudioWindow::AddQuickTransition(QWidget *anchor)
 {
 	QMenu menu(this);
+	QSpinBox *duration = DurationSpin(300, &menu);
 	FillTransitionChoices(
 		&menu,
-		[](obs_source_t *tr) {
+		[duration](obs_source_t *tr) {
 			auto list = Manager::Get().QuickTransitions();
 			Manager::QuickTransition q;
 			q.transition = obs_source_get_uuid(tr);
-			q.durationMs = obs_frontend_get_transition_duration();
+			q.durationMs = duration->value();
 			list.push_back(q);
 			Manager::Get().SetQuickTransitions(list);
 		},
 		[this](const QString &display) {
 			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
 		});
+	menu.addSeparator();
+	auto *durationAction = new QWidgetAction(&menu);
+	durationAction->setDefaultWidget(duration);
+	menu.addAction(durationAction);
 	menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
 }
 
-void StudioWindow::ShowQuickTransitionMenu(int index, const QPoint &globalPos)
+/* Menu d'une transition rapide, comme OBS : Supprimer, les transitions,
+ * la durée. */
+void StudioWindow::FillQuickTransitionMenu(QMenu *menu, int index)
 {
-	if (index < 0 || size_t(index) >= Manager::Get().QuickTransitions().size())
+	const auto &list = Manager::Get().QuickTransitions();
+	if (index < 0 || size_t(index) >= list.size())
 		return;
-	QMenu menu(this);
-	QMenu *change = menu.addMenu(Tr("MDS.QuickTransitionChange"));
+	connect(menu->addAction(Tr("MDS.QuickTransitionRemove")), &QAction::triggered, this, [index]() {
+		auto l = Manager::Get().QuickTransitions();
+		if (size_t(index) < l.size())
+			l.erase(l.begin() + index);
+		Manager::Get().SetQuickTransitions(l);
+	});
+	menu->addSeparator();
 	FillTransitionChoices(
-		change,
+		menu,
 		[index](obs_source_t *tr) {
-			auto list = Manager::Get().QuickTransitions();
-			if (size_t(index) < list.size())
-				list[size_t(index)].transition = obs_source_get_uuid(tr);
-			Manager::Get().SetQuickTransitions(list);
+			auto l = Manager::Get().QuickTransitions();
+			if (size_t(index) < l.size())
+				l[size_t(index)].transition = obs_source_get_uuid(tr);
+			Manager::Get().SetQuickTransitions(l);
 		},
 		[this](const QString &display) {
 			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
 		});
-	connect(menu.addAction(Tr("MDS.QuickTransitionDuration")), &QAction::triggered, this, [this, index]() {
-		auto list = Manager::Get().QuickTransitions();
-		if (size_t(index) >= list.size())
+	menu->addSeparator();
+	QSpinBox *duration = DurationSpin(list[size_t(index)].durationMs, menu);
+	connect(duration, &QSpinBox::valueChanged, this, [this, index](int value) {
+		auto l = Manager::Get().QuickTransitions();
+		if (size_t(index) >= l.size())
 			return;
-		bool ok = false;
-		const int value = QInputDialog::getInt(this, Tr("MDS.QuickTransitionDuration"), Tr("MDS.Duration"),
-						       list[size_t(index)].durationMs, 50, 20000, 50, &ok);
-		if (!ok)
-			return;
-		list[size_t(index)].durationMs = value;
-		Manager::Get().SetQuickTransitions(list);
+		l[size_t(index)].durationMs = value;
+		/* Texte du bouton mis à jour sans reconstruire (le menu est ouvert). */
+		Manager::Get().SetQuickTransitionsQuietly(l);
+		if (size_t(index) < quickButtons.size())
+			quickButtons[size_t(index)]->setText(QuickTransitionText(l[size_t(index)]));
 	});
-	menu.addSeparator();
-	connect(menu.addAction(Tr("MDS.QuickTransitionRemove")), &QAction::triggered, this, [index]() {
-		auto list = Manager::Get().QuickTransitions();
-		if (size_t(index) < list.size())
-			list.erase(list.begin() + index);
-		Manager::Get().SetQuickTransitions(list);
-	});
-	menu.exec(globalPos);
+	auto *durationAction = new QWidgetAction(menu);
+	durationAction->setDefaultWidget(duration);
+	menu->addAction(durationAction);
 }
 
 /* ------------------------------------------------------------------ */

@@ -169,9 +169,6 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
 		m.OnObsProgramChanged();
 		break;
-	case OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED:
-		m.OnObsPreviewChanged();
-		break;
 	case OBS_FRONTEND_EVENT_TRANSITION_CHANGED:
 	case OBS_FRONTEND_EVENT_TRANSITION_LIST_CHANGED:
 	case OBS_FRONTEND_EVENT_TRANSITION_DURATION_CHANGED:

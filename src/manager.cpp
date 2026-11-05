@@ -288,47 +288,6 @@ void Manager::SetPreviewScene(obs_source_t *mainScene)
 		return;
 	previewScene = mainScene ? OBSGetWeakRef(mainScene) : OBSWeakSource();
 	emit previewChanged();
-
-	/* L'aperçu d'OBS suit (retours « scène en aperçu » de Companion). */
-	if (followObsPreview && mainScene && !syncingPreview && obs_frontend_preview_program_mode_active()) {
-		OBSSourceAutoRelease obsPreview = obs_frontend_get_current_preview_scene();
-		if (obsPreview.Get() != mainScene) {
-			syncingPreview = true;
-			obs_frontend_set_current_preview_scene(mainScene);
-			syncingPreview = false;
-		}
-	}
-}
-
-void Manager::EnableObsStudioMode()
-{
-	syncingPreview = true;
-	obs_frontend_set_preview_program_mode(true);
-	syncingPreview = false;
-	OBSSource preview = PreviewScene();
-	if (followObsPreview && preview && obs_frontend_preview_program_mode_active()) {
-		syncingPreview = true;
-		obs_frontend_set_current_preview_scene(preview);
-		syncingPreview = false;
-	}
-}
-
-void Manager::OnObsPreviewChanged()
-{
-	if (!ready || !followObsPreview || syncingPreview || taking)
-		return;
-	OBSSourceAutoRelease scene = obs_frontend_get_current_preview_scene();
-	if (!scene || obs_weak_source_references_source(previewScene, scene))
-		return;
-	/* Seulement une scène de la liste commune. */
-	for (auto &s : MainScenes()) {
-		if (s.Get() == scene.Get()) {
-			syncingPreview = true;
-			SetPreviewScene(scene);
-			syncingPreview = false;
-			return;
-		}
-	}
 }
 
 void Manager::TakeScene(obs_source_t *mainScene, bool cut, obs_source_t *transition, int durationMs, bool skipMain)
@@ -374,21 +333,11 @@ void Manager::OnObsProgramChanged()
 	if (!ready)
 		return;
 
+	/* Un changement de scène fait dans OBS n'agit que sur la destination
+	 * par défaut ; on suit seulement le Program pour l'affichage. */
 	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
-	if (current && !taking && !obs_weak_source_references_source(programScene, current)) {
-		/* Changement fait dans OBS (Companion « Set Program Scene »,
-		 * transition du mode Studio, obs-websocket…) : les autres
-		 * destinations suivent si le réglage est actif ; sinon seule la
-		 * destination par défaut change. */
-		bool common = false;
-		for (auto &s : MainScenes())
-			common = common || s.Get() == current.Get();
-		if (followObsProgram && common) {
-			TakeScene(current, false, nullptr, -1, true);
-			return;
-		}
+	if (current && !taking && !obs_weak_source_references_source(programScene, current))
 		programScene = OBSGetWeakRef(current.Get());
-	}
 	emit programChanged();
 }
 
@@ -575,11 +524,7 @@ void Manager::LoadSettings()
 		language.empty() ? "celle d'OBS" : language.c_str());
 	showAllDestinations = config_get_bool(config, SETTINGS_SECTION, "ShowAllDestinations");
 	config_set_default_bool(config, SETTINGS_SECTION, "CuesEnabled", false);
-	config_set_default_bool(config, SETTINGS_SECTION, "FollowObsPreview", true);
-	config_set_default_bool(config, SETTINGS_SECTION, "FollowObsProgram", true);
 	cuesEnabled = config_get_bool(config, SETTINGS_SECTION, "CuesEnabled");
-	followObsPreview = config_get_bool(config, SETTINGS_SECTION, "FollowObsPreview");
-	followObsProgram = config_get_bool(config, SETTINGS_SECTION, "FollowObsProgram");
 }
 
 void Manager::SaveSettings() const
@@ -593,8 +538,6 @@ void Manager::SaveSettings() const
 	config_set_bool(config, SETTINGS_SECTION, "LaunchOnStartup", launchOnStartup);
 	config_set_bool(config, SETTINGS_SECTION, "OpenOutputsOnStartup", openOutputsOnStartup);
 	config_set_bool(config, SETTINGS_SECTION, "CuesEnabled", cuesEnabled);
-	config_set_bool(config, SETTINGS_SECTION, "FollowObsPreview", followObsPreview);
-	config_set_bool(config, SETTINGS_SECTION, "FollowObsProgram", followObsProgram);
 	config_save_safe(config, "tmp", nullptr);
 }
 
@@ -641,22 +584,6 @@ void Manager::SetCuesEnabled(bool value)
 		CueEngine::Get().Stop();
 	SaveSettings();
 	emit settingsChanged();
-}
-
-void Manager::SetFollowObsPreview(bool value)
-{
-	if (followObsPreview == value)
-		return;
-	followObsPreview = value;
-	SaveSettings();
-}
-
-void Manager::SetFollowObsProgram(bool value)
-{
-	if (followObsProgram == value)
-		return;
-	followObsProgram = value;
-	SaveSettings();
 }
 
 void Manager::SetOpenOutputsOnStartup(bool value)

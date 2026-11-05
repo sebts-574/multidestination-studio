@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
 
+#include <QDateTime>
 #include <QTimer>
 #include <QUuid>
 
@@ -33,8 +34,23 @@ CueEngine &CueEngine::Get()
 	return instance;
 }
 
+static qint64 NowMs()
+{
+	return QDateTime::currentMSecsSinceEpoch();
+}
+
+static QString Clock(qint64 ms)
+{
+	if (ms < 0)
+		ms = 0;
+	const qint64 s = ms / 1000;
+	return QString("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QChar('0'));
+}
+
 CueEngine::CueEngine()
 {
+	ticker.setInterval(250);
+	connect(&ticker, &QTimer::timeout, this, &CueEngine::Tick);
 	Manager &m = Manager::Get();
 	/* Une autre scène choisie en Aperçu : la cue n'est plus armée. */
 	connect(&m, &Manager::previewChanged, this, [this]() {
@@ -136,9 +152,18 @@ bool CueEngine::Go(const std::string &id, bool cut)
 	programBefore = program ? OBSGetWeakRef(program.Get()) : OBSWeakSource();
 	armedId.clear();
 	obs_log(LOG_INFO, "cue « %s » lancée (%zu scène(s))", cue->name.c_str(), cue->steps.size());
+	ticker.start();
 	emit stateChanged();
 	RunStep();
 	return true;
+}
+
+void CueEngine::StartPhase(int value, int ms)
+{
+	phase = value;
+	phaseStart = NowMs();
+	phaseLength = ms;
+	emit progressChanged();
 }
 
 void CueEngine::RunStep()
@@ -150,6 +175,7 @@ void CueEngine::RunStep()
 	}
 	const CueStep step = cue->steps[size_t(runningStep)];
 	emit stateChanged();
+	StartPhase(PhasePreWait, step.preWaitMs);
 	Schedule(step.preWaitMs, [this, step]() {
 		OBSSourceAutoRelease scene = obs_get_source_by_uuid(step.scene.c_str());
 		int busyMs = 0;
@@ -165,19 +191,135 @@ void CueEngine::RunStep()
 			if (!cut)
 				busyMs = duration > 0 ? duration : obs_frontend_get_transition_duration();
 		}
+		/* « Fin du média » : la scène suivante part quand le média de la
+		 * scène est terminé (suivi dans Tick). */
+		if (step.nextOnMediaEnd && scene) {
+			WatchMedia(scene);
+			if (OBSGetStrongRef(media)) {
+				StartPhase(PhaseMedia, 0);
+				return;
+			}
+			obs_log(LOG_INFO, "cue : aucun média dans « %s », post-délai utilisé",
+				obs_source_get_name(scene));
+		}
 		/* L'étape suivante attend au moins la fin de la transition : une
 		 * transition ne peut pas en interrompre une autre. */
-		Schedule(std::max(step.postWaitMs, busyMs > 0 ? busyMs + 60 : 0), [this]() {
-			runningStep++;
-			RunStep();
-		});
+		const int wait = std::max(step.postWaitMs, busyMs > 0 ? busyMs + 60 : 0);
+		StartPhase(PhasePostWait, wait);
+		Schedule(wait, [this]() { Advance(); });
 	});
+}
+
+void CueEngine::Advance()
+{
+	media = nullptr;
+	runningStep++;
+	RunStep();
+}
+
+/* Média le plus long de la scène (éléments visibles, groupes compris). */
+void CueEngine::WatchMedia(obs_source_t *scene)
+{
+	media = nullptr;
+	mediaStarted = false;
+	struct Search {
+		OBSSource best;
+		int64_t duration = -1;
+	} search;
+	auto visit = [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+		auto *found = static_cast<Search *>(param);
+		if (!obs_sceneitem_visible(item))
+			return true;
+		obs_source_t *src = obs_sceneitem_get_source(item);
+		if (obs_sceneitem_is_group(item)) {
+			obs_scene_enum_items(
+				obs_sceneitem_group_get_scene(item),
+				[](obs_scene_t *, obs_sceneitem_t *child, void *p) {
+					auto *f = static_cast<Search *>(p);
+					obs_source_t *c = obs_sceneitem_get_source(child);
+					if (obs_sceneitem_visible(child) &&
+					    (obs_source_get_output_flags(c) & OBS_SOURCE_CONTROLLABLE_MEDIA)) {
+						const int64_t d = obs_source_media_get_duration(c);
+						if (d > f->duration || !f->best) {
+							f->best = c;
+							f->duration = d;
+						}
+					}
+					return true;
+				},
+				found);
+			return true;
+		}
+		if (obs_source_get_output_flags(src) & OBS_SOURCE_CONTROLLABLE_MEDIA) {
+			const int64_t d = obs_source_media_get_duration(src);
+			if (d > found->duration || !found->best) {
+				found->best = src;
+				found->duration = d;
+			}
+		}
+		return true;
+	};
+	obs_scene_enum_items(obs_scene_from_source(scene), visit, &search);
+	if (search.best)
+		media = OBSGetWeakRef(search.best.Get());
+}
+
+void CueEngine::Tick()
+{
+	if (!Running())
+		return;
+	if (phase == PhaseMedia) {
+		OBSSource src = OBSGetStrongRef(media);
+		if (!src) {
+			Advance();
+			return;
+		}
+		const obs_media_state state = obs_source_media_get_state(src);
+		if (state == OBS_MEDIA_STATE_PLAYING || state == OBS_MEDIA_STATE_PAUSED ||
+		    state == OBS_MEDIA_STATE_BUFFERING || state == OBS_MEDIA_STATE_OPENING)
+			mediaStarted = true;
+		const bool finished = state == OBS_MEDIA_STATE_ENDED || state == OBS_MEDIA_STATE_STOPPED ||
+				      state == OBS_MEDIA_STATE_ERROR;
+		/* Un média qui ne démarre jamais (déjà fini, pas de redémarrage)
+		 * ne bloque pas la cue plus de 5 s. */
+		if ((finished && mediaStarted) || (!mediaStarted && NowMs() - phaseStart > 5000)) {
+			Advance();
+			return;
+		}
+	}
+	emit progressChanged();
+}
+
+QString CueEngine::StatusText() const
+{
+	if (!Running())
+		return QString();
+	const qint64 elapsed = NowMs() - phaseStart;
+	switch (phase) {
+	case PhasePreWait:
+		return QString("⏱ %1").arg(Clock(phaseLength - elapsed + 999));
+	case PhasePostWait:
+		return QString("● %1").arg(Clock(phaseLength - elapsed + 999));
+	case PhaseMedia: {
+		OBSSource src = OBSGetStrongRef(media);
+		if (!src)
+			return QString();
+		const int64_t t = obs_source_media_get_time(src);
+		const int64_t d = obs_source_media_get_duration(src);
+		return QString("▶ %1 / %2").arg(Clock(t)).arg(Clock(d));
+	}
+	default:
+		return QString();
+	}
 }
 
 void CueEngine::Finish()
 {
 	runningId.clear();
 	runningStep = -1;
+	phase = PhaseNone;
+	media = nullptr;
+	ticker.stop();
 	/* Comme une prise normale : l'ancien Program revient en Aperçu. */
 	OBSSource before = OBSGetStrongRef(programBefore);
 	if (Manager::Get().SwapAfterTake() && before)
@@ -188,6 +330,9 @@ void CueEngine::Finish()
 void CueEngine::Stop()
 {
 	generation++;
+	phase = PhaseNone;
+	media = nullptr;
+	ticker.stop();
 	if (runningId.empty())
 		return;
 	runningId.clear();
@@ -210,6 +355,7 @@ void CueEngine::Save(obs_data_t *data) const
 			obs_data_set_int(st, "post_wait", s.postWaitMs);
 			obs_data_set_string(st, "transition", s.transition.c_str());
 			obs_data_set_int(st, "duration", s.durationMs);
+			obs_data_set_bool(st, "next_on_media_end", s.nextOnMediaEnd);
 			obs_data_array_push_back(steps, st);
 		}
 		obs_data_set_array(item, "steps", steps);
@@ -240,6 +386,7 @@ void CueEngine::Load(obs_data_t *data)
 			s.postWaitMs = int(obs_data_get_int(st, "post_wait"));
 			s.transition = obs_data_get_string(st, "transition");
 			s.durationMs = int(obs_data_get_int(st, "duration"));
+			s.nextOnMediaEnd = obs_data_get_bool(st, "next_on_media_end");
 			c.steps.push_back(s);
 		}
 		cues.push_back(c);

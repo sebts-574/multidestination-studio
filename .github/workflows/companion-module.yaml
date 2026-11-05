@@ -1,0 +1,75 @@
+name: Companion module
+
+# Builds the Companion OBS module with the Multidestination Studio presets: upstream
+# bitfocus/companion-module-obs-studio at companion/UPSTREAM_COMMIT plus companion/*.patch.
+on:
+  push:
+    paths:
+      - 'companion/**'
+      - '.github/workflows/companion-module.yaml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build, check and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream module and apply the patch
+        run: |
+          git clone https://github.com/bitfocus/companion-module-obs-studio.git module
+          cd module
+          git checkout "$(cat ../companion/UPSTREAM_COMMIT)"
+          git apply ../companion/multidestination-studio.patch
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: module/package.json
+          cache: yarn
+          cache-dependency-path: module/yarn.lock
+
+      - name: Install dependencies
+        working-directory: module
+        run: yarn install --immutable
+
+      - name: Format (and keep the formatted patch)
+        working-directory: module
+        run: |
+          yarn format
+          git add -A
+          git diff --cached HEAD > ../multidestination-studio.patch
+
+      - name: Lint
+        if: ${{ !cancelled() }}
+        working-directory: module
+        run: yarn lint
+
+      - name: Types
+        if: ${{ !cancelled() }}
+        working-directory: module
+        run: yarn check-types
+
+      - name: Tests
+        if: ${{ !cancelled() }}
+        working-directory: module
+        run: yarn test
+
+      - name: Package
+        if: ${{ !cancelled() }}
+        working-directory: module
+        run: |
+          npm pkg set version=4.0.0-multidestination.1
+          yarn package
+          ls -la *.tgz
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: companion-module-obs-studio-multidestination
+          path: |
+            module/*.tgz
+            multidestination-studio.patch

@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCoreApplication>
 #include <QMetaObject>
 #include <QThread>
+#include <QTimer>
 
 #include <cstring>
 #include <functional>
@@ -99,7 +100,14 @@ void GetState(obs_data_t *, obs_data_t *response, void *)
 		}
 		obs_frontend_source_list_free(&list);
 		obs_data_set_array(response, "transitions", transitions);
+		obs_data_set_bool(response, "swapAfterTake", m.SwapAfterTake());
+		obs_data_set_bool(response, "showAllDestinations", m.ShowAllDestinations());
 		obs_data_set_bool(response, "cuesEnabled", m.CuesEnabled());
+		const CueEngine &engine = CueEngine::Get();
+		const Cue *running = engine.Find(engine.RunningId());
+		const Cue *armed = engine.Find(engine.ArmedId());
+		obs_data_set_string(response, "runningCue", running ? running->name.c_str() : "");
+		obs_data_set_string(response, "previewCue", armed ? armed->name.c_str() : "");
 		OBSDataArrayAutoRelease cues = obs_data_array_create();
 		for (const auto &c : CueEngine::Get().Cues()) {
 			OBSDataAutoRelease item = obs_data_create();
@@ -203,6 +211,48 @@ void StopCue(obs_data_t *, obs_data_t *response, void *)
 	});
 }
 
+/* Réglages : {"value": bool} ; sans valeur, bascule. */
+bool ReadToggle(obs_data_t *request, bool current)
+{
+	return obs_data_has_user_value(request, "value") ? obs_data_get_bool(request, "value") : !current;
+}
+
+void SetAfterTransition(obs_data_t *request, obs_data_t *response, void *)
+{
+	OnUi([request, response]() {
+		Manager::Get().SetSwapAfterTake(ReadToggle(request, Manager::Get().SwapAfterTake()));
+		obs_data_set_bool(response, "swapAfterTake", Manager::Get().SwapAfterTake());
+		Ok(response);
+	});
+}
+
+void SetDestinationsShown(obs_data_t *request, obs_data_t *response, void *)
+{
+	OnUi([request, response]() {
+		Manager::Get().SetShowAllDestinations(ReadToggle(request, Manager::Get().ShowAllDestinations()));
+		obs_data_set_bool(response, "showAllDestinations", Manager::Get().ShowAllDestinations());
+		Ok(response);
+	});
+}
+
+/* Un seul « StateChanged » par passage de la boucle d'événements : le
+ * client relit l'état avec GetState. */
+bool statePending = false;
+
+void EmitStateChanged()
+{
+	if (!vendor || statePending)
+		return;
+	statePending = true;
+	QTimer::singleShot(0, qApp, []() {
+		statePending = false;
+		if (!vendor)
+			return;
+		OBSDataAutoRelease data = obs_data_create();
+		obs_websocket_vendor_emit_event(vendor, "StateChanged", data);
+	});
+}
+
 void EmitScene(const char *event, const OBSSource &scene)
 {
 	if (!vendor)
@@ -230,6 +280,8 @@ void RemoteControl::Register()
 		{"SetPreviewCue", SetPreviewCue},
 		{"GoCue", GoCue},
 		{"StopCue", StopCue},
+		{"SetAfterTransition", SetAfterTransition},
+		{"SetDestinationsShown", SetDestinationsShown},
 	};
 	for (const auto &r : requests)
 		obs_websocket_vendor_register_request(vendor, r.first, r.second, nullptr);
@@ -239,5 +291,10 @@ void RemoteControl::Register()
 			 []() { EmitScene("PreviewSceneChanged", Manager::Get().PreviewScene()); });
 	QObject::connect(&m, &Manager::programChanged, &m,
 			 []() { EmitScene("ProgramSceneChanged", Manager::Get().ProgramScene()); });
+	for (auto signal : {&Manager::previewChanged, &Manager::programChanged, &Manager::settingsChanged,
+			    &Manager::scenesChanged, &Manager::loaded, &Manager::quickTransitionsChanged})
+		QObject::connect(&m, signal, &m, []() { EmitStateChanged(); });
+	for (auto signal : {&CueEngine::cuesChanged, &CueEngine::stateChanged})
+		QObject::connect(&CueEngine::Get(), signal, &m, []() { EmitStateChanged(); });
 	obs_log(LOG_INFO, "pilotage obs-websocket prêt (fournisseur « multidestination-studio »)");
 }

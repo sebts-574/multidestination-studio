@@ -41,12 +41,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
  * - un dépôt à la souris n'est pas appliqué par Qt : onMove reçoit la ligne
  *   visée et la position (au-dessus, dedans, en dessous), et la fenêtre
  *   applique le déplacement elle-même (scènes d'OBS, groupes...). */
-/* Icônes cliquables à droite de la ligne (œil, cadenas), dessinées par-dessus
- * la ligne : la sélection reste d'un seul tenant, comme dans OBS. */
+/* Dessin des lignes :
+ * - icônes cliquables à droite (œil, cadenas), par-dessus la ligne : la
+ *   sélection reste d'un seul tenant, comme dans OBS ;
+ * - flèche d'ouverture des dossiers / groupes dans la ligne elle-même, à
+ *   gauche de l'icône (pas de colonne de branches à part). */
 class TrailingIconDelegate : public QStyledItemDelegate {
 public:
-	using QStyledItemDelegate::QStyledItemDelegate;
+	explicit TrailingIconDelegate(QTreeWidget *tree) : QStyledItemDelegate(tree), view(tree) {}
 	static constexpr int IconRole = Qt::UserRole + 20;
+	static constexpr int ContainerRole = Qt::UserRole + 30;
+	static constexpr int ArrowWidth = 16;
 	int count = 0;
 
 	static QRect IconRect(const QRect &row, int i, int count)
@@ -55,6 +60,12 @@ public:
 		const int step = 24;
 		const int x = row.right() - 6 - (count - i) * step + (step - size) / 2;
 		return QRect(x, row.center().y() - size / 2 + 1, size, size);
+	}
+
+	/* Zone de la flèche (début de la ligne, après la marge intérieure). */
+	static QRect ArrowRect(const QRect &row)
+	{
+		return QRect(row.left() + 2, row.top(), ArrowWidth + 6, row.height());
 	}
 
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -68,6 +79,41 @@ public:
 				icon.paint(painter, IconRect(option.rect, i, count));
 		}
 	}
+
+protected:
+	void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+	{
+		QStyledItemDelegate::initStyleOption(option, index);
+		if (index.column() != 0 || !index.data(ContainerRole).toBool())
+			return;
+		/* Flèche + icône dans une seule image. */
+		const bool open = view && view->isExpanded(index);
+		const QColor color = option->palette.color(QPalette::Text);
+		const QIcon icon = option->icon;
+		const int w = icon.isNull() ? ArrowWidth : ArrowWidth + 20;
+		QPixmap pm(w * 2, 32);
+		pm.setDevicePixelRatio(2.0);
+		pm.fill(Qt::transparent);
+		QPainter p(&pm);
+		p.setRenderHint(QPainter::Antialiasing);
+		p.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		if (open) {
+			p.drawLine(QPointF(4, 6.5), QPointF(8, 10.5));
+			p.drawLine(QPointF(8, 10.5), QPointF(12, 6.5));
+		} else {
+			p.drawLine(QPointF(6.5, 4), QPointF(10.5, 8));
+			p.drawLine(QPointF(10.5, 8), QPointF(6.5, 12));
+		}
+		if (!icon.isNull())
+			icon.paint(&p, QRect(ArrowWidth + 2, 0, 16, 16));
+		p.end();
+		option->icon = QIcon(pm);
+		option->decorationSize = QSize(w, 16);
+		option->features |= QStyleOptionViewItem::HasDecoration;
+	}
+
+private:
+	QTreeWidget *view = nullptr;
 };
 
 class OrganizerTree : public QTreeWidget {
@@ -82,11 +128,16 @@ public:
 		setDefaultDropAction(Qt::MoveAction);
 		setDropIndicatorShown(true);
 		setAutoExpandDelay(600);
-		setIndentation(14);
+		setIndentation(22);
 		setUniformRowHeights(true);
 		setExpandsOnDoubleClick(false);
 		setAllColumnsShowFocus(true);
 		setEditTriggers(QAbstractItemView::EditKeyPressed);
+		/* Pas de colonne de branches : la flèche des dossiers est dans la
+		 * ligne, et les éléments hors dossier ne sont pas décalés. */
+		setRootIsDecorated(false);
+		delegate = new TrailingIconDelegate(this);
+		setItemDelegate(delegate);
 		setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 		if (columns > 1) {
 			header()->setStretchLastSection(false);
@@ -109,11 +160,10 @@ public:
 	/* Icônes cliquables à droite (rôle TrailingIconDelegate::IconRole + i). */
 	void SetTrailingIcons(int count)
 	{
-		auto *delegate = new TrailingIconDelegate(this);
 		delegate->count = count;
 		trailingIcons = count;
-		setItemDelegate(delegate);
 	}
+	static constexpr int ContainerRole = TrailingIconDelegate::ContainerRole;
 	std::function<void(QTreeWidgetItem *item, int icon)> onIconClicked;
 
 	std::function<void()> onDelete;
@@ -131,6 +181,14 @@ protected:
 		 * zone vide : sélection de plusieurs éléments. Ctrl / Maj : pas de
 		 * glisser, sélection seulement. */
 		QTreeWidgetItem *item = itemAt(event->position().toPoint());
+		/* Flèche d'un dossier : ouvrir / fermer sans changer la sélection. */
+		if (item && event->button() == Qt::LeftButton && item->data(0, ContainerRole).toBool() &&
+		    TrailingIconDelegate::ArrowRect(visualRect(indexFromItem(item, 0)))
+			    .contains(event->position().toPoint())) {
+			item->setExpanded(!item->isExpanded());
+			event->accept();
+			return;
+		}
 		if (item && trailingIcons > 0 && event->button() == Qt::LeftButton && onIconClicked) {
 			const QRect rect = visualRect(indexFromItem(item, 0));
 			for (int i = 0; i < trailingIcons; i++) {
@@ -214,4 +272,5 @@ protected:
 private:
 	bool pressed = false;
 	int trailingIcons = 0;
+	TrailingIconDelegate *delegate = nullptr;
 };

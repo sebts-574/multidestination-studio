@@ -21,6 +21,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs.hpp>
 
 #include <QObject>
+#include <QString>
+#include <QTimer>
 #include <functional>
 #include <string>
 #include <vector>
@@ -33,6 +35,9 @@ struct CueStep {
 	int postWaitMs = 0;     /* après le début de la transition */
 	std::string transition; /* "" = transition courante, "cut" = coupure, sinon uuid */
 	int durationMs = 0;     /* 0 = durée courante d'OBS */
+	/* Passer à la scène suivante quand le média de la scène est fini (à la
+	 * place du post-délai). */
+	bool nextOnMediaEnd = false;
 };
 
 struct Cue {
@@ -68,6 +73,8 @@ public:
 	bool Running() const { return !runningId.empty(); }
 	const std::string &RunningId() const { return runningId; }
 	int RunningStep() const { return runningStep; }
+	/* État de l'étape en cours (attente, média : temps écoulé / durée). */
+	QString StatusText() const;
 
 	void Save(obs_data_t *data) const;
 	void Load(obs_data_t *data);
@@ -76,12 +83,18 @@ public:
 signals:
 	void cuesChanged();
 	void stateChanged();
+	/* L'état affiché de l'étape en cours a changé (≈ 4 fois / s). */
+	void progressChanged();
 
 private:
 	CueEngine();
 	void RunStep();
 	void Finish();
 	void Schedule(int ms, std::function<void()> fn);
+	void StartPhase(int phase, int ms);
+	void WatchMedia(obs_source_t *scene);
+	void Tick();
+	void Advance();
 
 	std::vector<Cue> cues;
 	std::string armedId;
@@ -92,4 +105,13 @@ private:
 	bool firstCut = false;
 	OBSWeakSource programBefore;
 	int generation = 0;
+
+	/* Suivi de l'étape en cours. */
+	enum Phase { PhaseNone, PhasePreWait, PhaseOnAir, PhasePostWait, PhaseMedia };
+	int phase = PhaseNone;
+	qint64 phaseStart = 0;
+	int phaseLength = 0;
+	OBSWeakSource media;
+	bool mediaStarted = false;
+	QTimer ticker;
 };

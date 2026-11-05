@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <obs-frontend-api.h>
 
 #include <QAbstractButton>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -63,7 +64,7 @@ QString TransitionLabel(const CueStep &step)
 {
 	if (step.transition == "cut")
 		return Tr("MDS.Cut");
-	QString name = Tr("MDS.CueCurrentTransition");
+	QString name = Tr("MDS.CueDefault");
 	if (!step.transition.empty()) {
 		if (OBSSource tr = Manager::FindTransition(step.transition))
 			name = QString::fromUtf8(obs_source_get_name(tr));
@@ -80,19 +81,21 @@ QString Seconds(int ms)
 
 QString StepText(size_t index, const CueStep &step)
 {
-	return QString("%1. %2   ·   %3 %4 · %5 · %6 %7")
+	const QString after = step.nextOnMediaEnd
+				      ? Tr("MDS.CueMediaEndShort")
+				      : QString("%1 %2").arg(Tr("MDS.CuePostWaitShort")).arg(Seconds(step.postWaitMs));
+	return QString("%1. %2   ·   %3 %4 · %5 · %6")
 		.arg(index + 1)
 		.arg(SceneNameOf(step.scene))
 		.arg(Tr("MDS.CuePreWaitShort"))
 		.arg(Seconds(step.preWaitMs))
 		.arg(TransitionLabel(step))
-		.arg(Tr("MDS.CuePostWaitShort"))
-		.arg(Seconds(step.postWaitMs));
+		.arg(after);
 }
 
 /* ---- Fenêtre d'édition d'une cue ---- */
 
-enum Column { COL_SCENE, COL_PRE, COL_TRANSITION, COL_DURATION, COL_POST, COL_COUNT };
+enum Column { COL_SCENE, COL_PRE, COL_TRANSITION, COL_DURATION, COL_MEDIA, COL_POST, COL_COUNT };
 
 QComboBox *SceneCombo(const std::string &current, QWidget *parent)
 {
@@ -105,23 +108,49 @@ QComboBox *SceneCombo(const std::string &current, QWidget *parent)
 	return combo;
 }
 
+/* « Default » puis toutes les transitions d'OBS (UserRole + 1 : durée
+ * fixe, comme Cut). */
 QComboBox *TransitionCombo(const std::string &current, QWidget *parent)
 {
 	auto *combo = new QComboBox(parent);
-	combo->addItem(Tr("MDS.CueCurrentTransition"), QString());
-	combo->addItem(Tr("MDS.Cut"), QString("cut"));
+	combo->addItem(Tr("MDS.CueDefault"), QString());
 	struct obs_frontend_source_list list = {};
 	obs_frontend_get_transitions(&list);
 	for (size_t i = 0; i < list.sources.num; i++) {
 		obs_source_t *tr = list.sources.array[i];
-		if (strcmp(obs_source_get_id(tr), "cut_transition") == 0)
-			continue;
-		combo->addItem(QString::fromUtf8(obs_source_get_name(tr)), QString::fromUtf8(obs_source_get_uuid(tr)));
+		const bool cut = strcmp(obs_source_get_id(tr), "cut_transition") == 0;
+		combo->addItem(QString::fromUtf8(obs_source_get_name(tr)),
+			       cut ? QString("cut") : QString::fromUtf8(obs_source_get_uuid(tr)));
+		combo->setItemData(combo->count() - 1, cut || obs_transition_fixed(tr), Qt::UserRole + 1);
 	}
 	obs_frontend_source_list_free(&list);
 	const int index = combo->findData(QString::fromStdString(current));
 	combo->setCurrentIndex(index >= 0 ? index : 0);
 	return combo;
+}
+
+/* Durée selon la transition, comme le dock d'OBS : Default -> durée par
+ * défaut (non modifiable) ; transition fixe (Cut) -> grisée ; autre ->
+ * modifiable (300 ms proposés). */
+void UpdateDurationField(QComboBox *transition, QSpinBox *duration)
+{
+	const QString data = transition->currentData().toString();
+	const bool fixed = transition->currentData(Qt::UserRole + 1).toBool();
+	if (data.isEmpty()) {
+		duration->setSpecialValueText(Tr("MDS.CueDefault"));
+		duration->setValue(0);
+		duration->setEnabled(false);
+	} else if (fixed) {
+		duration->setSpecialValueText(QString());
+		if (duration->value() == 0)
+			duration->setValue(obs_frontend_get_transition_duration());
+		duration->setEnabled(false);
+	} else {
+		duration->setSpecialValueText(QString());
+		if (duration->value() == 0)
+			duration->setValue(300);
+		duration->setEnabled(true);
+	}
 }
 
 QDoubleSpinBox *SecondsSpin(int ms, QWidget *parent)
@@ -149,7 +178,7 @@ public:
 
 		table = new QTableWidget(0, COL_COUNT, this);
 		table->setHorizontalHeaderLabels({Tr("MDS.CueScene"), Tr("MDS.CuePreWait"), Tr("MDS.CueTransition"),
-						  Tr("MDS.CueDuration"), Tr("MDS.CuePostWait")});
+						  Tr("MDS.CueDuration"), Tr("MDS.CueMediaEnd"), Tr("MDS.CuePostWait")});
 		table->horizontalHeader()->setSectionResizeMode(COL_SCENE, QHeaderView::Stretch);
 		table->horizontalHeader()->setSectionResizeMode(COL_TRANSITION, QHeaderView::Stretch);
 		table->verticalHeader()->setVisible(true);
@@ -225,10 +254,12 @@ public:
 			auto *tr = static_cast<QComboBox *>(table->cellWidget(r, COL_TRANSITION));
 			auto *dur = static_cast<QSpinBox *>(table->cellWidget(r, COL_DURATION));
 			auto *post = static_cast<QDoubleSpinBox *>(table->cellWidget(r, COL_POST));
+			auto *media = table->cellWidget(r, COL_MEDIA)->findChild<QCheckBox *>();
 			s.scene = scene->currentData().toString().toStdString();
 			s.preWaitMs = int(pre->value() * 1000.0 + 0.5);
 			s.transition = tr->currentData().toString().toStdString();
-			s.durationMs = dur->value();
+			s.durationMs = dur->isEnabled() ? dur->value() : 0;
+			s.nextOnMediaEnd = media && media->isChecked();
 			s.postWaitMs = int(post->value() * 1000.0 + 0.5);
 			steps.push_back(s);
 		}
@@ -245,19 +276,36 @@ private:
 			const int r = int(i);
 			table->setCellWidget(r, COL_SCENE, SceneCombo(s.scene, table));
 			table->setCellWidget(r, COL_PRE, SecondsSpin(s.preWaitMs, table));
-			table->setCellWidget(r, COL_TRANSITION, TransitionCombo(s.transition, table));
+			QComboBox *tr = TransitionCombo(s.transition, table);
+			table->setCellWidget(r, COL_TRANSITION, tr);
 			auto *dur = new QSpinBox(table);
 			dur->setRange(0, 20000);
 			dur->setSingleStep(50);
 			dur->setSuffix(" ms");
-			dur->setSpecialValueText(Tr("MDS.CueDefaultDuration"));
 			dur->setValue(s.durationMs);
 			table->setCellWidget(r, COL_DURATION, dur);
-			table->setCellWidget(r, COL_POST, SecondsSpin(s.postWaitMs, table));
+			UpdateDurationField(tr, dur);
+			connect(tr, &QComboBox::currentIndexChanged, dur,
+				[tr, dur]() { UpdateDurationField(tr, dur); });
+
+			/* Fin du média -> scène suivante (remplace le post-délai). */
+			auto *mediaCell = new QWidget(table);
+			auto *mediaLayout = new QHBoxLayout(mediaCell);
+			mediaLayout->setContentsMargins(0, 0, 0, 0);
+			auto *media = new QCheckBox(mediaCell);
+			media->setChecked(s.nextOnMediaEnd);
+			media->setToolTip(Tr("MDS.CueMediaEndTip"));
+			mediaLayout->addWidget(media, 0, Qt::AlignCenter);
+			table->setCellWidget(r, COL_MEDIA, mediaCell);
+			QDoubleSpinBox *post = SecondsSpin(s.postWaitMs, table);
+			post->setEnabled(!s.nextOnMediaEnd);
+			connect(media, &QCheckBox::toggled, post, [post](bool on) { post->setEnabled(!on); });
+			table->setCellWidget(r, COL_POST, post);
 		}
 		table->resizeColumnToContents(COL_PRE);
 		table->resizeColumnToContents(COL_DURATION);
 		table->resizeColumnToContents(COL_POST);
+		table->resizeColumnToContents(COL_MEDIA);
 	}
 
 	QLineEdit *name = nullptr;
@@ -331,6 +379,7 @@ CuesPanel::CuesPanel(QWidget *parent) : QWidget(parent)
 	});
 	connect(&engine, &CueEngine::cuesChanged, this, &CuesPanel::Refresh);
 	connect(&engine, &CueEngine::stateChanged, this, &CuesPanel::UpdateState);
+	connect(&engine, &CueEngine::progressChanged, this, &CuesPanel::UpdateState);
 	connect(&Manager::Get(), &Manager::scenesChanged, this, &CuesPanel::Refresh);
 
 	QStyle *st = style();
@@ -387,6 +436,7 @@ void CuesPanel::Refresh()
 		row->setData(0, Qt::UserRole, QString::fromStdString(cue.id));
 		row->setData(0, Qt::UserRole + 1, ROW_CUE);
 		row->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled);
+		row->setData(0, OrganizerTree::ContainerRole, true);
 		for (size_t i = 0; i < cue.steps.size(); i++) {
 			auto *child = new QTreeWidgetItem();
 			child->setText(0, StepText(i, cue.steps[i]));
@@ -416,6 +466,8 @@ void CuesPanel::UpdateState()
 		if (!cue)
 			continue;
 		const bool running = engine.RunningId() == id;
+		if (running && !row->isExpanded())
+			row->setExpanded(true);
 		QFont font = row->font(0);
 		font.setBold(engine.ArmedId() == id || running);
 		row->setFont(0, font);
@@ -425,8 +477,14 @@ void CuesPanel::UpdateState()
 			QFont f = row->child(k)->font(0);
 			f.setBold(current);
 			row->child(k)->setFont(0, f);
-			row->child(k)->setText(0, (current ? QString("▶ ") : QString()) +
-							  StepText(size_t(k), cue->steps[size_t(k)]));
+			QString text = StepText(size_t(k), cue->steps[size_t(k)]);
+			/* Étape en cours : son état (attente, média 0:12 / 0:45). */
+			if (current) {
+				const QString status = engine.StatusText();
+				text = "▶ " + text + (status.isEmpty() ? QString() : "   " + status);
+			}
+			if (row->child(k)->text(0) != text)
+				row->child(k)->setText(0, text);
 		}
 	}
 }

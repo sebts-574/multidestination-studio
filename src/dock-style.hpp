@@ -51,5 +51,7 @@ QIcon VisibilityIcon(bool visible, const QColor &color);
 QIcon LockIcon(bool locked, const QColor &color);
 /* « + » de secours (le thème d'OBS fournit le sien). */
 QIcon PlusIcon();
+/* Dossier + « + » au trait, comme les icônes du thème d'OBS. */
+QIcon FolderPlusIcon();
 
 } // namespace DockStyle

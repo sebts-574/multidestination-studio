@@ -201,7 +201,7 @@ private:
 	QWidget *quickPanel = nullptr;
 	std::vector<QPushButton *> quickButtons;
 	void RefreshQuickTransitions();
-	void ShowQuickTransitionMenu(int index, const QPoint &globalPos);
+	void FillQuickTransitionMenu(QMenu *menu, int index);
 	void AddQuickTransition(QWidget *anchor);
 	/* Ajoute une transition d'OBS d'un type donné (fenêtre d'OBS). */
 	void CreateObsTransition(const QString &displayName);
@@ -210,7 +210,6 @@ private:
 	QDockWidget *cuesDock = nullptr;
 	void ApplyCuesFeature();
 	void EditCuesSetting();
-	void EditCompanionSetting();
 	AudioMixer *mixer = nullptr;
 	MediaControls *mediaControls = nullptr;
 	QPushButton *modifyPgmButton = nullptr;
