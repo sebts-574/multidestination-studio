@@ -42,6 +42,45 @@ index 148054e..c93492f 100644
  ## Advanced WebSocket features
  
  ### Custom – Send Command
+diff --git a/src/__tests__/mock/instance.ts b/src/__tests__/mock/instance.ts
+index e4215f8..10d2e0c 100644
+--- a/src/__tests__/mock/instance.ts
++++ b/src/__tests__/mock/instance.ts
+@@ -10,6 +10,7 @@ import {
+ import { validName } from '../../utils.js'
+ import { OBSState } from '../../state.js'
+ import { OBSApi } from '../../api.js'
++import { emptyMultidestinationState } from '../../multidestination.js'
+ import { makeMockSocket, type MockOBSWebSocket } from './socket.js'
+ 
+ /** Mock OBSInstance implementation for testing request building and state mutations. */
+@@ -35,6 +36,7 @@ export function makeMockInstance(config?: Partial<ModuleConfig>, secrets?: Parti
+ 	const self = {
+ 		socket: makeMockSocket(),
+ 		obsState,
++		multidestination: emptyMultidestinationState(),
+ 		config: { host: '127.0.0.1', port: 4455, ...config },
+ 		secrets: { ...secrets },
+ 		isRecordingActions: false,
+@@ -107,6 +109,18 @@ export function seedFullState(self: MockInstance): void {
+ 	s.previewSceneUuid = 'Scene B'
+ 	s.studioMode = true
+ 
++	// Multidestination Studio plugin installed, with cues on, so its presets are built too.
++	self.multidestination = {
++		...emptyMultidestinationState(),
++		available: true,
++		previewScene: 'Scene B',
++		programScene: 'Scene A',
++		scenes: ['Scene A', 'Scene B'],
++		transitions: ['Fade', 'Cut'],
++		cuesEnabled: true,
++		cues: ['Cue 1'],
++	}
++
+ 	// Audio input
+ 	s.sources.set('Mic', {
+ 		sourceName: 'Mic',
 diff --git a/src/actions.ts b/src/actions.ts
 index a18a179..ef094fa 100644
 --- a/src/actions.ts
@@ -442,10 +481,10 @@ index 6658168..8484ede 100644
  
 diff --git a/src/multidestination.ts b/src/multidestination.ts
 new file mode 100644
-index 0000000..252dae5
+index 0000000..c816bda
 --- /dev/null
 +++ b/src/multidestination.ts
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,100 @@
 +import { createModuleLogger, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from './main.js'
 +
@@ -524,8 +563,13 @@ index 0000000..252dae5
 +
 +/** Re-reads the plugin state. Rebuilds the definitions when the plugin appears or its lists change. */
 +export async function refreshMultidestination(self: OBSInstance): Promise<void> {
-+	const data = await multidestinationRequest(self, 'GetState', {})
-+	const previous = self.multidestination
++	let data: JsonObject | null = null
++	try {
++		data = await multidestinationRequest(self, 'GetState', {})
++	} catch (error) {
++		logger.debug(`GetState failed (${String(error)})`)
++	}
++	const previous = self.multidestination ?? emptyMultidestinationState()
 +	const next = parseMultidestinationState(data)
 +	self.multidestination = next
 +

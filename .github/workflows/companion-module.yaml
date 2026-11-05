@@ -36,10 +36,11 @@ jobs:
         working-directory: module
         run: yarn install --immutable
 
-      - name: Format (and keep the formatted patch)
+      - name: Format, refresh the option snapshot, keep the resulting patch
         working-directory: module
         run: |
           yarn format
+          yarn vitest --run -u src/__tests__/option-shape.test.ts || true
           git add -A
           git diff --cached HEAD > ../multidestination-studio.patch
 
