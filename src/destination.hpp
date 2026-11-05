@@ -96,6 +96,11 @@ public:
 	 * utilisent une copie de la transition d'OBS (templ) ; la destination
 	 * par défaut utilise directement celle d'OBS. */
 	void Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ, int durationMs);
+	/* Transition manuelle (barre T) : début, position 0…1, fin (finie ou
+	 * annulée). Destinations supplémentaires seulement. */
+	void BeginManual(obs_source_t *linkedScene, obs_source_t *templ);
+	void SetManual(float t);
+	void EndManual(bool finished);
 	std::string ProgramSceneName() const;
 	/* Ce qui est réellement à l'antenne : une copie privée de la scène,
 	 * faite au moment de la transition. Vide si rien n'est à l'antenne. */
@@ -152,6 +157,8 @@ private:
 	OBSWeakSource programScene;
 	OBSSource liveCopy;
 	std::vector<OBSSource> retired;
+	OBSSource manualCopy;
+	OBSWeakSource manualScene;
 	OBSSource transition;
 	std::string transitionSignature; /* id + réglages de la transition copiée */
 	std::string outputScreen;

@@ -60,6 +60,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QStyle>
 #include <QTimer>
 #include <QMouseEvent>
+#include <QSlider>
+#include <QStyleOptionSlider>
 #include <QToolBar>
 #include <QWidgetAction>
 #include <QTreeWidget>
@@ -276,6 +278,26 @@ private:
 	}
 };
 
+/* Barre T d'OBS : on ne la déplace qu'en tirant sa poignée (un clic à côté
+ * ne la fait pas sauter). */
+class TBarSlider : public QSlider {
+public:
+	explicit TBarSlider(QWidget *parent) : QSlider(Qt::Horizontal, parent) {}
+
+protected:
+	void mousePressEvent(QMouseEvent *event) override
+	{
+		QStyleOptionSlider opt;
+		initStyleOption(&opt);
+		const QRect handle = style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, this);
+		if (!handle.contains(event->position().toPoint())) {
+			event->ignore();
+			return;
+		}
+		QSlider::mousePressEvent(event);
+	}
+};
+
 void StudioWindow::BuildCentral()
 {
 	monitors = new QWidget(this);
@@ -325,7 +347,7 @@ void StudioWindow::BuildCentral()
 	transitionRow->addWidget(transition, 1);
 	auto *options = new QPushButton(monitors);
 	options->setToolTip(Tr("MDS.TransitionOptions"));
-	options->setText("⋮");
+	options->setIcon(DockStyle::DotsIcon());
 	options->setFixedWidth(30);
 	SetIconClass(options, "icon-dots-vert");
 	connect(options, &QPushButton::clicked, this, [this, options]() {
@@ -370,6 +392,20 @@ void StudioWindow::BuildCentral()
 	quickLayout->setContentsMargins(0, 2, 0, 0);
 	quickLayout->setSpacing(4);
 	controls->addWidget(quickPanel);
+	/* Barre T : glisser jusqu'au bout pour finir la transition, revenir au
+	 * début pour l'annuler (comme OBS). */
+	tbar = new TBarSlider(monitors);
+	tbar->setRange(0, Manager::TBarMax);
+	tbar->setProperty("class", "slider-tbar");
+	tbar->setToolTip(Tr("MDS.TBarTip"));
+	connect(tbar, &QSlider::valueChanged, this, [](int value) { Manager::Get().TBarMove(value); });
+	connect(tbar, &QSlider::sliderReleased, this, [this]() {
+		if (Manager::Get().TBarRelease(tbar->value())) {
+			const QSignalBlocker blocker(tbar);
+			tbar->setValue(0);
+		}
+	});
+	controls->addWidget(tbar);
 	controls->addStretch(5);
 	layout->addLayout(controls);
 
@@ -659,13 +695,6 @@ void StudioWindow::BuildDocks()
 		if (refreshingTransitions || index < 0)
 			return;
 		const QString wanted = transitionCombo->itemData(index).toString();
-		/* « + Type » : nouvelle transition d'OBS de ce type. */
-		if (wanted.startsWith("type:")) {
-			const QString display = transitionCombo->itemData(index, Qt::UserRole + 1).toString();
-			RefreshTransitions();
-			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
-			return;
-		}
 		struct obs_frontend_source_list list = {};
 		obs_frontend_get_transitions(&list);
 		for (size_t i = 0; i < list.sources.num; i++) {
@@ -1866,7 +1895,9 @@ void StudioWindow::UpdateTakeButtons()
 	if (cutButton)
 		cutButton->setEnabled(!folder);
 	for (QPushButton *b : quickButtons)
-		b->setEnabled(!folder && b->text() != Tr("MDS.QuickTransitionMissing"));
+		b->setEnabled(!folder);
+	if (tbar)
+		tbar->setEnabled(!folder || Manager::Get().TBarActive());
 	folderTakeNote->setVisible(folder);
 }
 
@@ -2932,16 +2963,27 @@ void StudioWindow::RefreshTransitions()
 	}
 	obs_frontend_source_list_free(&list);
 
-	/* Tous les types de transition d'OBS : en choisir un en ajoute une. */
-	transitionCombo->insertSeparator(transitionCombo->count());
-	size_t idx = 0;
-	const char *id = nullptr;
-	while (obs_enum_transition_types(idx++, &id)) {
-		if (!obs_is_source_configurable(id))
-			continue;
-		const QString display = QString::fromUtf8(obs_source_get_display_name(id));
-		transitionCombo->addItem(Tr("MDS.TransitionAddType").arg(display), QString("type:") + id);
-		transitionCombo->setItemData(transitionCombo->count() - 1, display, Qt::UserRole + 1);
+	/* Transition rapide en cours de création (fenêtre d'OBS) : la nouvelle
+	 * transition de ce type apparaît dans la liste. */
+	if (!pendingQuickType.empty()) {
+		struct obs_frontend_source_list fresh = {};
+		obs_frontend_get_transitions(&fresh);
+		for (size_t i = 0; i < fresh.sources.num; i++) {
+			obs_source_t *tr = fresh.sources.array[i];
+			if (pendingQuickType == obs_source_get_id(tr) &&
+			    !pendingQuickBefore.count(obs_source_get_uuid(tr))) {
+				auto quick = Manager::Get().QuickTransitions();
+				Manager::QuickTransition q;
+				q.transition = obs_source_get_uuid(tr);
+				q.name = obs_source_get_name(tr);
+				q.durationMs = pendingQuickDuration;
+				quick.push_back(q);
+				pendingQuickType.clear();
+				Manager::Get().SetQuickTransitions(quick);
+				break;
+			}
+		}
+		obs_frontend_source_list_free(&fresh);
 	}
 
 	durationSpin->setValue(obs_frontend_get_transition_duration());
@@ -2998,11 +3040,8 @@ protected:
 	}
 };
 
-static QString QuickTransitionText(const Manager::QuickTransition &q)
+static QString QuickTransitionText(const Manager::QuickTransition &q, obs_source_t *tr)
 {
-	OBSSource tr = Manager::FindTransition(q.transition);
-	if (!tr)
-		return Tr("MDS.QuickTransitionMissing");
 	QString text = QString::fromUtf8(obs_source_get_name(tr));
 	if (!obs_transition_fixed(tr))
 		text += QString(" (%1ms)").arg(q.durationMs);
@@ -3021,9 +3060,13 @@ void StudioWindow::RefreshQuickTransitions()
 		delete item;
 	}
 
+	/* Une transition supprimée dans OBS : son bouton n'est pas affiché. */
 	const auto &list = Manager::Get().QuickTransitions();
 	for (size_t i = 0; i < list.size(); i++) {
-		auto *button = new MenuButton(QuickTransitionText(list[i]), quickPanel);
+		OBSSource tr = Manager::ResolveQuickTransition(list[i]);
+		if (!tr)
+			continue;
+		auto *button = new MenuButton(QuickTransitionText(list[i], tr), quickPanel);
 		const int index = int(i);
 		auto *menu = new QMenu(button);
 		connect(menu, &QMenu::aboutToShow, this, [this, menu, index]() {
@@ -3031,11 +3074,12 @@ void StudioWindow::RefreshQuickTransitions()
 			FillQuickTransitionMenu(menu, index);
 		});
 		button->setMenu(menu);
+		button->setProperty("quickIndex", index);
 		connect(button, &QPushButton::clicked, this, [index]() {
 			const auto &l = Manager::Get().QuickTransitions();
 			if (size_t(index) >= l.size())
 				return;
-			OBSSource t = Manager::FindTransition(l[size_t(index)].transition);
+			OBSSource t = Manager::ResolveQuickTransition(l[size_t(index)]);
 			if (t)
 				Manager::Get().Take(obs_transition_fixed(t), t, l[size_t(index)].durationMs);
 		});
@@ -3043,30 +3087,6 @@ void StudioWindow::RefreshQuickTransitions()
 		quickButtons.push_back(button);
 	}
 	UpdateTakeButtons();
-}
-
-/* Menu des transitions d'OBS (et des types pour en créer une). */
-static void FillTransitionChoices(QMenu *menu, const std::function<void(obs_source_t *)> &chosen,
-				  const std::function<void(const QString &)> &create)
-{
-	struct obs_frontend_source_list list = {};
-	obs_frontend_get_transitions(&list);
-	for (size_t i = 0; i < list.sources.num; i++) {
-		OBSSource tr = list.sources.array[i];
-		QObject::connect(menu->addAction(QString::fromUtf8(obs_source_get_name(tr))), &QAction::triggered, menu,
-				 [chosen, tr]() { chosen(tr); });
-	}
-	obs_frontend_source_list_free(&list);
-	menu->addSeparator();
-	size_t idx = 0;
-	const char *id = nullptr;
-	while (obs_enum_transition_types(idx++, &id)) {
-		if (!obs_is_source_configurable(id))
-			continue;
-		const QString display = QString::fromUtf8(obs_source_get_display_name(id));
-		QObject::connect(menu->addAction(Tr("MDS.TransitionAddType").arg(display)), &QAction::triggered, menu,
-				 [create, display]() { create(display); });
-	}
 }
 
 static QSpinBox *DurationSpin(int value, QWidget *parent)
@@ -3079,24 +3099,55 @@ static QSpinBox *DurationSpin(int value, QWidget *parent)
 	return spin;
 }
 
-/* « + » : la transition choisie est ajoutée avec la durée du bas du menu. */
+/* « + » : uniquement la création d'une nouvelle transition rapide, à partir
+ * d'un type de transition d'OBS et de la durée choisie en bas du menu. Cut et
+ * Fondu utilisent les transitions de base d'OBS ; les autres types créent
+ * une transition d'OBS (fenêtres de nom et de propriétés d'OBS). */
 void StudioWindow::AddQuickTransition(QWidget *anchor)
 {
 	QMenu menu(this);
 	QSpinBox *duration = DurationSpin(300, &menu);
-	FillTransitionChoices(
-		&menu,
-		[duration](obs_source_t *tr) {
-			auto list = Manager::Get().QuickTransitions();
+	auto addBuiltIn = [duration](const char *id) {
+		struct obs_frontend_source_list list = {};
+		obs_frontend_get_transitions(&list);
+		for (size_t i = 0; i < list.sources.num; i++) {
+			obs_source_t *tr = list.sources.array[i];
+			if (strcmp(obs_source_get_id(tr), id) != 0)
+				continue;
+			auto quick = Manager::Get().QuickTransitions();
 			Manager::QuickTransition q;
 			q.transition = obs_source_get_uuid(tr);
+			q.name = obs_source_get_name(tr);
 			q.durationMs = duration->value();
-			list.push_back(q);
-			Manager::Get().SetQuickTransitions(list);
-		},
-		[this](const QString &display) {
+			quick.push_back(q);
+			Manager::Get().SetQuickTransitions(quick);
+			break;
+		}
+		obs_frontend_source_list_free(&list);
+	};
+	for (const char *builtIn : {"cut_transition", "fade_transition"}) {
+		connect(menu.addAction(QString::fromUtf8(obs_source_get_display_name(builtIn))), &QAction::triggered,
+			this, [addBuiltIn, builtIn]() { addBuiltIn(builtIn); });
+	}
+	size_t idx = 0;
+	const char *id = nullptr;
+	while (obs_enum_transition_types(idx++, &id)) {
+		if (!obs_is_source_configurable(id))
+			continue;
+		const std::string type = id;
+		const QString display = QString::fromUtf8(obs_source_get_display_name(id));
+		connect(menu.addAction(display), &QAction::triggered, this, [this, type, display, duration]() {
+			pendingQuickType = type;
+			pendingQuickDuration = duration->value();
+			pendingQuickBefore.clear();
+			struct obs_frontend_source_list list = {};
+			obs_frontend_get_transitions(&list);
+			for (size_t i = 0; i < list.sources.num; i++)
+				pendingQuickBefore.insert(obs_source_get_uuid(list.sources.array[i]));
+			obs_frontend_source_list_free(&list);
 			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
 		});
+	}
 	menu.addSeparator();
 	auto *durationAction = new QWidgetAction(&menu);
 	durationAction->setDefaultWidget(duration);
@@ -3104,31 +3155,26 @@ void StudioWindow::AddQuickTransition(QWidget *anchor)
 	menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
 }
 
-/* Menu d'une transition rapide, comme OBS : Supprimer, les transitions,
- * la durée. */
+/* Flèche d'une transition rapide : la modifier (propriétés, durée) ou la
+ * supprimer ; pas de création ici. */
 void StudioWindow::FillQuickTransitionMenu(QMenu *menu, int index)
 {
 	const auto &list = Manager::Get().QuickTransitions();
 	if (index < 0 || size_t(index) >= list.size())
 		return;
+	OBSSource tr = Manager::ResolveQuickTransition(list[size_t(index)]);
 	connect(menu->addAction(Tr("MDS.QuickTransitionRemove")), &QAction::triggered, this, [index]() {
 		auto l = Manager::Get().QuickTransitions();
 		if (size_t(index) < l.size())
 			l.erase(l.begin() + index);
 		Manager::Get().SetQuickTransitions(l);
 	});
-	menu->addSeparator();
-	FillTransitionChoices(
-		menu,
-		[index](obs_source_t *tr) {
-			auto l = Manager::Get().QuickTransitions();
-			if (size_t(index) < l.size())
-				l[size_t(index)].transition = obs_source_get_uuid(tr);
-			Manager::Get().SetQuickTransitions(l);
-		},
-		[this](const QString &display) {
-			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
-		});
+	if (tr && obs_source_configurable(tr)) {
+		connect(menu->addAction(Tr("MDS.QuickTransitionProperties")), &QAction::triggered, this,
+			[tr]() { obs_frontend_open_source_properties(tr); });
+	}
+	if (!tr || obs_transition_fixed(tr))
+		return;
 	menu->addSeparator();
 	QSpinBox *duration = DurationSpin(list[size_t(index)].durationMs, menu);
 	connect(duration, &QSpinBox::valueChanged, this, [this, index](int value) {
@@ -3138,8 +3184,11 @@ void StudioWindow::FillQuickTransitionMenu(QMenu *menu, int index)
 		l[size_t(index)].durationMs = value;
 		/* Texte du bouton mis à jour sans reconstruire (le menu est ouvert). */
 		Manager::Get().SetQuickTransitionsQuietly(l);
-		if (size_t(index) < quickButtons.size())
-			quickButtons[size_t(index)]->setText(QuickTransitionText(l[size_t(index)]));
+		OBSSource t = Manager::ResolveQuickTransition(l[size_t(index)]);
+		for (QPushButton *b : quickButtons) {
+			if (t && b->property("quickIndex").toInt() == index)
+				b->setText(QuickTransitionText(l[size_t(index)], t));
+		}
 	});
 	auto *durationAction = new QWidgetAction(menu);
 	durationAction->setDefaultWidget(duration);

@@ -86,9 +86,19 @@ public:
 
 	/* --- Transitions rapides (barre entre Aperçu et Programme) --- */
 	struct QuickTransition {
-		std::string transition; /* uuid de la transition d'OBS */
+		std::string transition; /* uuid de la transition d'OBS (change à chaque lancement) */
+		std::string name;       /* son nom : c'est lui qui sert après un redémarrage */
 		int durationMs = 300;
 	};
+	/* Transition d'OBS d'une transition rapide, ou nullptr si elle n'existe plus. */
+	static OBSSource ResolveQuickTransition(const QuickTransition &q);
+
+	/* --- Barre T (transition manuelle), position 0…TBarMax --- */
+	static constexpr int TBarMax = 1023;
+	void TBarMove(int position);
+	/* Renvoie true si la barre doit revenir à 0 (transition finie ou annulée). */
+	bool TBarRelease(int position);
+	bool TBarActive() const { return tbarActive; }
 	const std::vector<QuickTransition> &QuickTransitions() const { return quickTransitions; }
 	void SetQuickTransitions(const std::vector<QuickTransition> &list);
 	/* Sans reconstruire les boutons (durée changée depuis leur menu). */
@@ -167,6 +177,10 @@ private:
 	bool openOutputsOnStartup = false;
 	bool cuesEnabled = false;
 	std::vector<QuickTransition> quickTransitions;
+	bool tbarActive = false;
+	bool tbarMain = false;
+	OBSWeakSource tbarScene;
+	OBSWeakSource tbarOldProgram;
 
 	void LoadSettings();
 	void AdoptOrphanCanvases();

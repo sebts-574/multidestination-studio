@@ -492,6 +492,58 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 	PurgeRetiredCopies();
 }
 
+void Destination::BeginManual(obs_source_t *linkedScene, obs_source_t *templ)
+{
+	if (isMain || !linkedScene)
+		return;
+	CreateTransitionFrom(templ);
+	if (!transition)
+		return;
+	OBSSource copy = MakeLiveCopy(linkedScene);
+	if (!copy)
+		return;
+	obs_transition_set_manual_torque(transition, 8.0f, 0.05f);
+	if (!obs_transition_start(transition, OBS_TRANSITION_MODE_MANUAL, 0, copy)) {
+		obs_source_remove(copy);
+		return;
+	}
+	manualCopy = copy;
+	manualScene = OBSGetWeakRef(linkedScene);
+}
+
+void Destination::SetManual(float t)
+{
+	if (manualCopy && transition)
+		obs_transition_set_manual_time(transition, t);
+}
+
+void Destination::EndManual(bool finished)
+{
+	if (!manualCopy || !transition) {
+		manualCopy = nullptr;
+		return;
+	}
+	obs_transition_set_manual_time(transition, finished ? 1.0f : 0.0f);
+	if (finished) {
+		OBSSource scene = OBSGetStrongRef(manualScene);
+		OBSSource previous;
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			if (scene)
+				programScene = OBSGetWeakRef(scene.Get());
+			previous = liveCopy;
+			liveCopy = manualCopy;
+		}
+		if (previous)
+			retired.push_back(previous);
+	} else {
+		retired.push_back(manualCopy);
+	}
+	manualCopy = nullptr;
+	manualScene = nullptr;
+	PurgeRetiredCopies();
+}
+
 OBSSource Destination::MakeLiveCopy(obs_source_t *linkedScene)
 {
 	if (!canvas || !linkedScene)

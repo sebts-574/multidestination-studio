@@ -24,6 +24,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 #include <util/config-file.h>
 
+#include <cstring>
+
 Manager &Manager::Get()
 {
 	static Manager instance;
@@ -341,6 +343,106 @@ void Manager::OnObsProgramChanged()
 	emit programChanged();
 }
 
+OBSSource Manager::ResolveQuickTransition(const QuickTransition &q)
+{
+	OBSSource tr = FindTransition(q.transition);
+	if (!tr)
+		tr = FindTransition(q.name);
+	return tr;
+}
+
+/* Barre T : la destination par défaut passe par la barre T d'OBS (avec la
+ * scène d'Aperçu du studio en aperçu d'OBS) ; les autres destinations font
+ * une transition manuelle sur leur canvas. Comme OBS : Cut et Stinger sont
+ * remplacés par un fondu. */
+void Manager::TBarMove(int position)
+{
+	const float t = float(position) / float(TBarMax + 1);
+	if (!tbarActive) {
+		OBSSource preview = PreviewScene();
+		if (!preview || position <= 0)
+			return;
+		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
+		OBSSource templ = current.Get();
+		const char *id = templ ? obs_source_get_id(templ) : "";
+		if (!templ || strcmp(id, "cut_transition") == 0 || strcmp(id, "obs_stinger_transition") == 0) {
+			struct obs_frontend_source_list list = {};
+			obs_frontend_get_transitions(&list);
+			for (size_t i = 0; i < list.sources.num; i++) {
+				if (strcmp(obs_source_get_id(list.sources.array[i]), "fade_transition") == 0) {
+					templ = list.sources.array[i];
+					break;
+				}
+			}
+			obs_frontend_source_list_free(&list);
+		}
+		OBSSource old = ProgramScene();
+		tbarOldProgram = old ? OBSGetWeakRef(old.Get()) : OBSWeakSource();
+		tbarScene = OBSGetWeakRef(preview.Get());
+		tbarMain = false;
+		taking = true;
+		for (auto &d : destinations) {
+			if (d->Locked())
+				continue;
+			OBSSource linked = d->LinkedScene(preview);
+			if (!linked)
+				continue;
+			if (d->IsMain()) {
+				if (d->Disabled() || !obs_frontend_preview_program_mode_active())
+					continue;
+				obs_frontend_set_current_preview_scene(linked);
+				tbarMain = true;
+			} else {
+				d->BeginManual(linked, templ);
+			}
+		}
+		taking = false;
+		tbarActive = true;
+	}
+	taking = true;
+	if (tbarMain)
+		obs_frontend_set_tbar_position(position);
+	for (auto &d : destinations) {
+		if (!d->IsMain())
+			d->SetManual(t);
+	}
+	taking = false;
+}
+
+bool Manager::TBarRelease(int position)
+{
+	if (!tbarActive)
+		return true;
+	const int clamp = (TBarMax + 1) / 10;
+	const bool finished = TBarMax - position <= clamp;
+	const bool cancelled = position <= clamp;
+	if (!finished && !cancelled)
+		return false; /* comme OBS : la transition reste en suspens */
+
+	taking = true;
+	if (tbarMain)
+		obs_frontend_release_tbar();
+	for (auto &d : destinations) {
+		if (!d->IsMain())
+			d->EndManual(finished);
+	}
+	taking = false;
+	tbarActive = false;
+	tbarMain = false;
+
+	if (finished) {
+		OBSSource scene = OBSGetStrongRef(tbarScene);
+		OBSSource old = OBSGetStrongRef(tbarOldProgram);
+		if (scene) {
+			programScene = OBSGetWeakRef(scene.Get());
+			emit programChanged();
+			if (swapAfterTake && old && old.Get() != scene.Get())
+				SetPreviewScene(old);
+		}
+	}
+	return true;
+}
+
 void Manager::SetQuickTransitions(const std::vector<QuickTransition> &list)
 {
 	quickTransitions = list;
@@ -403,6 +505,7 @@ void Manager::Save(obs_data_t *data) const
 	for (const auto &q : quickTransitions) {
 		OBSDataAutoRelease item = obs_data_create();
 		obs_data_set_string(item, "transition", q.transition.c_str());
+		obs_data_set_string(item, "transition_name", q.name.c_str());
 		obs_data_set_int(item, "duration", q.durationMs);
 		obs_data_array_push_back(quick, item);
 	}
@@ -461,6 +564,11 @@ void Manager::ApplyLoad()
 			OBSDataAutoRelease item = obs_data_array_item(quick, i);
 			QuickTransition q;
 			q.transition = obs_data_get_string(item, "transition");
+			q.name = obs_data_get_string(item, "transition_name");
+			/* Anciennes entrées sans nom : leur uuid ne survit pas au
+			 * redémarrage d'OBS, on les abandonne. */
+			if (q.name.empty())
+				continue;
 			q.durationMs = int(obs_data_get_int(item, "duration"));
 			quickTransitions.push_back(q);
 		}

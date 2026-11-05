@@ -25,6 +25,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMainWindow>
 #include <QPointer>
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -199,6 +200,12 @@ private:
 	void ApplySceneSelection();
 	/* Transitions rapides (barre entre Aperçu et Programme). */
 	QWidget *quickPanel = nullptr;
+	/* Type de la transition rapide en cours de création dans OBS. */
+	std::string pendingQuickType;
+	int pendingQuickDuration = 300;
+	std::set<std::string> pendingQuickBefore;
+	/* Barre T (transition manuelle), comme le mode Studio d'OBS. */
+	class QSlider *tbar = nullptr;
 	std::vector<QPushButton *> quickButtons;
 	void RefreshQuickTransitions();
 	void FillQuickTransitionMenu(QMenu *menu, int index);

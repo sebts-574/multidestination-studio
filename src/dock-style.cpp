@@ -249,4 +249,15 @@ QIcon FolderPlusIcon()
 	});
 }
 
+QIcon DotsIcon()
+{
+	const QColor color = QApplication::palette().color(QPalette::ButtonText);
+	return PaintedIcon(color, [color](QPainter &p) {
+		p.setPen(Qt::NoPen);
+		p.setBrush(color);
+		for (double y : {3.5, 8.0, 12.5})
+			p.drawEllipse(QPointF(8, y), 1.4, 1.4);
+	});
+}
+
 } // namespace DockStyle

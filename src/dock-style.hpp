@@ -53,5 +53,7 @@ QIcon LockIcon(bool locked, const QColor &color);
 QIcon PlusIcon();
 /* Dossier + « + » au trait, comme les icônes du thème d'OBS. */
 QIcon FolderPlusIcon();
+/* « ⋮ » de secours (le thème d'OBS fournit le sien). */
+QIcon DotsIcon();
 
 } // namespace DockStyle
