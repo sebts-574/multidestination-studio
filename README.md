@@ -44,6 +44,8 @@ If you used a test version named `destinations-for-obs`, the Windows installer r
 
 The full user guide is in [`docs/`](docs/).
 
+To control the studio from Bitfocus Companion or a Stream Deck, see [Companion / Stream Deck](docs/companion-module.md).
+
 ## Building from source
 
 The project uses the [obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate) build system (CMake presets, Qt 6, OBS 31.1.1 dependencies downloaded automatically).

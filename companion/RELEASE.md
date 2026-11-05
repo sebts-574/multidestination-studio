@@ -8,3 +8,5 @@ Bitfocus Companion **OBS Studio** module with the **Multidestination Studio** pr
 4. With the Multidestination Studio plugin installed in OBS, **Presets** → **OBS** shows a **Multidestination Studio** section.
 
 This build is the official OBS Studio module (version 4.0.0) plus the Multidestination Studio additions; every other OBS feature works as usual. It needs a recent Companion that runs the OBS Studio module 4.0.0.
+
+Full guide: [docs/companion-module.md](https://github.com/sebts-574/multidestination-studio/blob/main/docs/companion-module.md)
