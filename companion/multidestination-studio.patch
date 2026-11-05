@@ -1,0 +1,782 @@
+diff --git a/companion/CHANGELOG.md b/companion/CHANGELOG.md
+index e578272..29107ed 100644
+--- a/companion/CHANGELOG.md
++++ b/companion/CHANGELOG.md
+@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ## [Unreleased]
+ 
++### Added
++
++- Multidestination Studio: when the Multidestination Studio OBS plugin is installed, a
++  "Multidestination Studio" preset section with its own Scene to Preview / Scene to Program buttons,
++  Transition and Transition With buttons, After a Transition and Destinations Shown toggles, and cues.
++  Matching actions and feedbacks use the plugin's obs-websocket vendor requests and events
++
+ ### Fixed
+ 
+ - Variables from 3.x work again in the scene and source of "Scene in Program", "Scene in Preview"
+diff --git a/companion/HELP.md b/companion/HELP.md
+index 148054e..c93492f 100644
+--- a/companion/HELP.md
++++ b/companion/HELP.md
+@@ -202,6 +202,21 @@ The available per-source variables depend on the source type and capabilities re
+ - **custom_command_type**, **custom_command_request**, **custom_command_response**
+ - **vendor_event_name**, **vendor_event_type**, **vendor_event_data**
+ 
++## Multidestination Studio
++
++When the [Multidestination Studio](https://github.com/sebts-574/multidestination-studio) OBS plugin
++is installed, the connection detects it and adds a **Multidestination Studio** preset section. These
++buttons drive the plugin's studio (every destination) instead of the OBS main canvas:
++
++- **Scene to Preview** / **Scene to Program**: one button per scene, green in Preview, red in Program.
++- **Transition**: takes the studio Preview to Program with the current transition.
++- **Transition With**: one button per OBS transition, which takes the Preview with that transition.
++- **After a Transition** and **Destinations Shown**: toggles for the two studio settings, lit when on.
++- **Cue to Preview** and **Stop Cue**, when the plugin's Cues feature is on.
++
++The matching actions and feedbacks are listed under "Multidestination Studio". They use the plugin's
++vendor requests (vendor `multidestination-studio`) and refresh on its `StateChanged` vendor event.
++
+ ## Advanced WebSocket features
+ 
+ ### Custom – Send Command
+diff --git a/src/actions.ts b/src/actions.ts
+index a18a179..ef094fa 100644
+--- a/src/actions.ts
++++ b/src/actions.ts
+@@ -8,6 +8,7 @@ import { getSceneActions, type SceneActionSchemas } from './actions/scenes.js'
+ import { getSourceActions, type SourceActionSchemas } from './actions/sources.js'
+ import { getTransitionActions, type TransitionActionSchemas } from './actions/transitions.js'
+ import { getUiConfigCustomActions, type UiConfigCustomActionSchemas } from './actions/ui-config-custom.js'
++import { getMultidestinationActions, type MultidestinationActionSchemas } from './actions/multidestination.js'
+ 
+ /** The full set of action schemas, used as `InstanceTypes['actions']`. */
+ export type OBSActionSchemas = AudioActionSchemas &
+@@ -16,7 +17,8 @@ export type OBSActionSchemas = AudioActionSchemas &
+ 	SceneActionSchemas &
+ 	SourceActionSchemas &
+ 	TransitionActionSchemas &
+-	UiConfigCustomActionSchemas
++	UiConfigCustomActionSchemas &
++	MultidestinationActionSchemas
+ 
+ export function getActions(this: OBSInstance): CompanionActionDefinitions<OBSActionSchemas> {
+ 	return {
+@@ -27,5 +29,6 @@ export function getActions(this: OBSInstance): CompanionActionDefinitions<OBSAct
+ 		...getSourceActions(this),
+ 		...getTransitionActions(this),
+ 		...getUiConfigCustomActions(this),
++		...getMultidestinationActions(this),
+ 	}
+ }
+diff --git a/src/actions/multidestination.ts b/src/actions/multidestination.ts
+new file mode 100644
+index 0000000..2c7d2fd
+--- /dev/null
++++ b/src/actions/multidestination.ts
+@@ -0,0 +1,156 @@
++import { CompanionActionDefinitions, type CompanionInputFieldDropdown, type JsonObject } from '@companion-module/base'
++import type OBSInstance from '../main.js'
++import { multidestinationRequest } from '../multidestination.js'
++
++export type MultidestinationActionSchemas = {
++	mdsPreviewScene: { options: { scene: string } }
++	mdsProgramScene: { options: { scene: string } }
++	mdsTransition: { options: { transition: string; customDuration: boolean; duration: number } }
++	mdsAfterTransition: { options: { mode: 'toggle' | 'on' | 'off' } }
++	mdsDestinationsShown: { options: { mode: 'toggle' | 'on' | 'off' } }
++	mdsCue: { options: { mode: 'preview' | 'go' | 'stop'; cue: string } }
++}
++
++/** Choice list from the plugin state; custom values allow names set by expressions. */
++export function mdsDropdown<TKey extends string>(
++	id: TKey,
++	label: string,
++	values: string[],
++	extra: Partial<CompanionInputFieldDropdown<TKey>> = {},
++): CompanionInputFieldDropdown<TKey> {
++	return {
++		type: 'dropdown',
++		id,
++		label,
++		default: values[0] ?? '',
++		choices: values.map((v) => ({ id: v, label: v })),
++		allowCustom: true,
++		...extra,
++	}
++}
++
++const TOGGLE_MODE: CompanionInputFieldDropdown<'mode'> = {
++	type: 'dropdown',
++	id: 'mode',
++	label: 'Mode',
++	default: 'toggle',
++	choices: [
++		{ id: 'toggle', label: 'Toggle' },
++		{ id: 'on', label: 'On' },
++		{ id: 'off', label: 'Off' },
++	],
++	disableAutoExpression: true,
++}
++
++function toggleData(mode: 'toggle' | 'on' | 'off'): JsonObject {
++	return mode === 'toggle' ? {} : { value: mode === 'on' }
++}
++
++export function getMultidestinationActions(
++	self: OBSInstance,
++): CompanionActionDefinitions<MultidestinationActionSchemas> {
++	const state = self.multidestination
++	return {
++		mdsPreviewScene: {
++			name: 'Multidestination Studio - Scene to Preview',
++			description: 'Shows a scene in the Multidestination Studio Preview',
++			options: [mdsDropdown('scene', 'Scene', state.scenes)],
++			callback: async (action) => {
++				await multidestinationRequest(self, 'SetPreviewScene', { sceneName: action.options.scene })
++			},
++		},
++
++		mdsProgramScene: {
++			name: 'Multidestination Studio - Scene to Program',
++			description: 'Puts a scene on air on every unlocked destination it covers, with the current transition',
++			options: [mdsDropdown('scene', 'Scene', state.scenes)],
++			callback: async (action) => {
++				await multidestinationRequest(self, 'SetProgramScene', { sceneName: action.options.scene })
++			},
++		},
++
++		mdsTransition: {
++			name: 'Multidestination Studio - Transition',
++			description: 'Takes the Multidestination Studio Preview to Program, with the current or a chosen transition',
++			options: [
++				mdsDropdown('transition', 'Transition', ['', ...state.transitions], {
++					default: '',
++					choices: [
++						{ id: '', label: 'Current transition' },
++						...state.transitions.map((t) => ({ id: t, label: t })),
++					],
++				}),
++				{
++					type: 'checkbox',
++					disableAutoExpression: true,
++					label: 'Custom Duration',
++					id: 'customDuration',
++					default: false,
++				},
++				{
++					type: 'number',
++					label: 'Transition time (in ms)',
++					id: 'duration',
++					default: 300,
++					min: 0,
++					max: 20 * 1000,
++					clampValues: true,
++					isVisibleExpression: `$(options:customDuration)`,
++				},
++			],
++			callback: async (action) => {
++				const data: JsonObject = {}
++				if (action.options.transition) data.transitionName = action.options.transition
++				if (action.options.customDuration) data.duration = action.options.duration
++				await multidestinationRequest(self, 'Transition', data)
++			},
++		},
++
++		mdsAfterTransition: {
++			name: 'Multidestination Studio - After a Transition',
++			description: 'On: the previous Program returns to Preview after a transition. Off: the scene taken stays in Preview',
++			options: [TOGGLE_MODE],
++			callback: async (action) => {
++				await multidestinationRequest(self, 'SetAfterTransition', toggleData(action.options.mode))
++			},
++		},
++
++		mdsDestinationsShown: {
++			name: 'Multidestination Studio - Destinations Shown',
++			description: 'On: every destination is shown. Off: only the destinations of the selected scene',
++			options: [TOGGLE_MODE],
++			callback: async (action) => {
++				await multidestinationRequest(self, 'SetDestinationsShown', toggleData(action.options.mode))
++			},
++		},
++
++		mdsCue: {
++			name: 'Multidestination Studio - Cue',
++			description: 'Shows a cue in Preview, runs it, or stops the running cue',
++			options: [
++				{
++					type: 'dropdown',
++					id: 'mode',
++					label: 'Mode',
++					default: 'preview',
++					choices: [
++						{ id: 'preview', label: 'Cue to Preview' },
++						{ id: 'go', label: 'Run Cue' },
++						{ id: 'stop', label: 'Stop Cue' },
++					],
++					disableAutoExpression: true,
++				},
++				mdsDropdown('cue', 'Cue', state.cues, { isVisibleExpression: `$(options:mode) != 'stop'` }),
++			],
++			callback: async (action) => {
++				if (action.options.mode === 'stop') {
++					await multidestinationRequest(self, 'StopCue', {})
++				} else {
++					await multidestinationRequest(self, action.options.mode === 'go' ? 'GoCue' : 'SetPreviewCue', {
++						cueName: action.options.cue,
++					})
++				}
++			},
++		},
++	}
++}
+diff --git a/src/api.ts b/src/api.ts
+index dc4fa36..8a74f44 100644
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -43,6 +43,7 @@ import {
+ 	isTextInputKind,
+ 	VIRTUALCAM_OUTPUT_NAME,
+ } from './constants.js'
++import { refreshMultidestination } from './multidestination.js'
+ 
+ const logger = createModuleLogger('OBSApi')
+ 
+@@ -157,6 +158,9 @@ export class OBSApi {
+ 
+ 					// Build scene list (registers inputs and scene containment).
+ 					await this.buildSceneList()
++
++					// Multidestination Studio plugin, if installed.
++					await refreshMultidestination(this.self)
+ 				} else {
+ 					// Fail connection if OBS capabilities could not be fetched.
+ 					throw new Error('could not get OBS info')
+diff --git a/src/feedbacks.ts b/src/feedbacks.ts
+index bdd7a0e..1000aa6 100644
+--- a/src/feedbacks.ts
++++ b/src/feedbacks.ts
+@@ -8,6 +8,10 @@ import { getSceneFeedbacks, type SceneFeedbackSchemas } from './feedbacks/scenes
+ import { getSourceFeedbacks, type SourceFeedbackSchemas } from './feedbacks/sources.js'
+ import { getTransitionFeedbacks, type TransitionFeedbackSchemas } from './feedbacks/transitions.js'
+ import { getUiConfigCustomFeedbacks, type UiConfigCustomFeedbackSchemas } from './feedbacks/ui-config-custom.js'
++import {
++	getMultidestinationFeedbacks,
++	type MultidestinationFeedbackSchemas,
++} from './feedbacks/multidestination.js'
+ 
+ /** The full set of feedback schemas, used as `InstanceTypes['feedbacks']`. */
+ export type OBSFeedbackSchemas = AudioFeedbackSchemas &
+@@ -16,7 +20,8 @@ export type OBSFeedbackSchemas = AudioFeedbackSchemas &
+ 	SceneFeedbackSchemas &
+ 	SourceFeedbackSchemas &
+ 	TransitionFeedbackSchemas &
+-	UiConfigCustomFeedbackSchemas
++	UiConfigCustomFeedbackSchemas &
++	MultidestinationFeedbackSchemas
+ 
+ /** Every feedback id the module defines. */
+ export type OBSFeedbackId = Extract<keyof OBSFeedbackSchemas, string>
+@@ -30,5 +35,6 @@ export function getFeedbacks(this: OBSInstance): CompanionFeedbackDefinitions<OB
+ 		...getSourceFeedbacks(this),
+ 		...getTransitionFeedbacks(this),
+ 		...getUiConfigCustomFeedbacks(this),
++		...getMultidestinationFeedbacks(this),
+ 	}
+ }
+diff --git a/src/feedbacks/multidestination.ts b/src/feedbacks/multidestination.ts
+new file mode 100644
+index 0000000..a8ca8d9
+--- /dev/null
++++ b/src/feedbacks/multidestination.ts
+@@ -0,0 +1,90 @@
++import { CompanionFeedbackDefinitions } from '@companion-module/base'
++import type OBSInstance from '../main.js'
++import { styleActive, stylePreview, styleProgram } from '../presets/style.js'
++import { mdsDropdown } from '../actions/multidestination.js'
++
++export type MultidestinationFeedbackSchemas = {
++	mdsScene: { type: 'boolean'; options: { scene: string; state: 'program' | 'preview' } }
++	mdsAfterTransition: { type: 'boolean'; options: Record<string, never> }
++	mdsDestinationsShown: { type: 'boolean'; options: Record<string, never> }
++	mdsCue: { type: 'boolean'; options: { cue: string; state: 'running' | 'preview' } }
++}
++
++export function getMultidestinationFeedbacks(
++	self: OBSInstance,
++): CompanionFeedbackDefinitions<MultidestinationFeedbackSchemas> {
++	const state = self.multidestination
++	return {
++		mdsScene: {
++			type: 'boolean',
++			name: 'Multidestination Studio - Scene in Preview / Program',
++			description: 'If a scene is in the Multidestination Studio Preview or Program, change the style of the button',
++			defaultStyle: styleProgram(),
++			options: [
++				mdsDropdown('scene', 'Scene', state.scenes),
++				{
++					type: 'dropdown',
++					id: 'state',
++					label: 'State',
++					default: 'program',
++					choices: [
++						{ id: 'program', label: 'Program' },
++						{ id: 'preview', label: 'Preview' },
++					],
++					disableAutoExpression: true,
++				},
++			],
++			callback: (feedback) => {
++				const mds = self.multidestination
++				const current = feedback.options.state === 'preview' ? mds.previewScene : mds.programScene
++				return self.multidestination.available && current === feedback.options.scene
++			},
++		},
++
++		mdsAfterTransition: {
++			type: 'boolean',
++			name: 'Multidestination Studio - Previous Program Returns to Preview',
++			description: 'If the previous Program returns to Preview after a transition, change the style of the button',
++			defaultStyle: styleActive(),
++			options: [],
++			callback: () => self.multidestination.available && self.multidestination.swapAfterTake,
++		},
++
++		mdsDestinationsShown: {
++			type: 'boolean',
++			name: 'Multidestination Studio - All Destinations Shown',
++			description: 'If every destination is shown (not only those of the selected scene), change the style of the button',
++			defaultStyle: styleActive(),
++			options: [],
++			callback: () => self.multidestination.available && self.multidestination.showAllDestinations,
++		},
++
++		mdsCue: {
++			type: 'boolean',
++			name: 'Multidestination Studio - Cue',
++			description: 'If a cue is in Preview or running, change the style of the button',
++			defaultStyle: stylePreview(),
++			options: [
++				mdsDropdown('cue', 'Cue', state.cues),
++				{
++					type: 'dropdown',
++					id: 'state',
++					label: 'State',
++					default: 'preview',
++					choices: [
++						{ id: 'preview', label: 'In Preview' },
++						{ id: 'running', label: 'Running' },
++					],
++					disableAutoExpression: true,
++				},
++			],
++			callback: (feedback) => {
++				const current =
++					feedback.options.state === 'running'
++						? self.multidestination.runningCue
++						: self.multidestination.previewCue
++				return self.multidestination.available && current === feedback.options.cue
++			},
++		},
++	}
++}
+diff --git a/src/listeners.ts b/src/listeners.ts
+index 9e77453..2e6f12b 100644
+--- a/src/listeners.ts
++++ b/src/listeners.ts
+@@ -12,6 +12,7 @@ import {
+ 	MEDIA_CONTROL_ACTIONS,
+ } from './types.js'
+ import { DEFAULT_TIMECODE, VIRTUALCAM_OUTPUT_NAME } from './constants.js'
++import { MDS_VENDOR, refreshMultidestination } from './multidestination.js'
+ 
+ const logger = createModuleLogger('Listeners')
+ 
+@@ -53,6 +54,7 @@ function setupGeneralListeners(self: OBSInstance, obs: OBSWebSocket): void {
+ 			vendor_event_data: eventData,
+ 		})
+ 		self.checkFeedbacks('vendorEvent')
++		if (data.vendorName === MDS_VENDOR) void refreshMultidestination(self)
+ 	})
+ }
+ 
+diff --git a/src/main.ts b/src/main.ts
+index 6658168..8484ede 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -14,6 +14,7 @@ import { getFeedbacks, type OBSFeedbackSchemas } from './feedbacks.js'
+ import UpgradeScripts from './upgrades.js'
+ import { ModuleConfig, ModuleSecrets, OBSNormalizedState } from './types.js'
+ import { OBSState } from './state.js'
++import { emptyMultidestinationState, type MultidestinationState } from './multidestination.js'
+ 
+ import OBSWebSocket from 'obs-websocket-js'
+ import { OBSApi } from './api.js'
+@@ -31,6 +32,8 @@ export default class OBSInstance extends InstanceBase<OBSInstanceTypes> {
+ 	public socket!: OBSWebSocket
+ 	public obs!: OBSApi
+ 	public obsState!: OBSState
++	// Multidestination Studio plugin state (empty when the plugin is not installed).
++	public multidestination: MultidestinationState = emptyMultidestinationState()
+ 	public config!: ModuleConfig
+ 	public secrets!: ModuleSecrets
+ 
+@@ -61,6 +64,7 @@ export default class OBSInstance extends InstanceBase<OBSInstanceTypes> {
+ 		this.secrets = secrets
+ 		this.obs = new OBSApi(this)
+ 		this.obsState = new OBSState()
++		this.multidestination = emptyMultidestinationState()
+ 		this.connect()
+ 	}
+ 
+@@ -77,6 +81,7 @@ export default class OBSInstance extends InstanceBase<OBSInstanceTypes> {
+ 		// The OBSApi is kept: it holds the feedback subscriptions (meters, output status), and Companion
+ 		// does not re-run feedback callbacks for a config change, so a fresh one would never relearn them.
+ 		this.obsState = new OBSState()
++		this.multidestination = emptyMultidestinationState()
+ 		this.connect()
+ 	}
+ 
+diff --git a/src/multidestination.ts b/src/multidestination.ts
+new file mode 100644
+index 0000000..252dae5
+--- /dev/null
++++ b/src/multidestination.ts
+@@ -0,0 +1,95 @@
++import { createModuleLogger, type JsonObject } from '@companion-module/base'
++import type OBSInstance from './main.js'
++
++const logger = createModuleLogger('Multidestination')
++
++/** obs-websocket vendor name registered by the Multidestination Studio OBS plugin. */
++export const MDS_VENDOR = 'multidestination-studio'
++
++/** State of the Multidestination Studio plugin, read with its `GetState` vendor request. */
++export interface MultidestinationState {
++	available: boolean
++	previewScene: string
++	programScene: string
++	scenes: string[]
++	transitions: string[]
++	swapAfterTake: boolean
++	showAllDestinations: boolean
++	cuesEnabled: boolean
++	cues: string[]
++	previewCue: string
++	runningCue: string
++}
++
++export function emptyMultidestinationState(): MultidestinationState {
++	return {
++		available: false,
++		previewScene: '',
++		programScene: '',
++		scenes: [],
++		transitions: [],
++		swapAfterTake: true,
++		showAllDestinations: true,
++		cuesEnabled: false,
++		cues: [],
++		previewCue: '',
++		runningCue: '',
++	}
++}
++
++/** Sends a request to the plugin. Resolves to its response data, or null if the plugin did not answer. */
++export async function multidestinationRequest(
++	self: OBSInstance,
++	requestType: string,
++	requestData: JsonObject,
++): Promise<JsonObject | null> {
++	const res = await self.obs.sendRequest('CallVendorRequest', { vendorName: MDS_VENDOR, requestType, requestData })
++	return res?.responseData ?? null
++}
++
++function names(list: unknown, key: string): string[] {
++	if (!Array.isArray(list)) return []
++	return list
++		.map((item) => (item && typeof item === 'object' ? (item as Record<string, unknown>)[key] : undefined))
++		.filter((name): name is string => typeof name === 'string')
++}
++
++/** Parses a `GetState` response. Exported for tests. */
++export function parseMultidestinationState(data: JsonObject | null): MultidestinationState {
++	if (!data || data.ok !== true) return emptyMultidestinationState()
++	return {
++		available: true,
++		previewScene: typeof data.previewScene === 'string' ? data.previewScene : '',
++		programScene: typeof data.programScene === 'string' ? data.programScene : '',
++		scenes: names(data.scenes, 'sceneName'),
++		transitions: names(data.transitions, 'transitionName'),
++		swapAfterTake: data.swapAfterTake !== false,
++		showAllDestinations: data.showAllDestinations !== false,
++		cuesEnabled: data.cuesEnabled === true,
++		cues: names(data.cues, 'cueName'),
++		previewCue: typeof data.previewCue === 'string' ? data.previewCue : '',
++		runningCue: typeof data.runningCue === 'string' ? data.runningCue : '',
++	}
++}
++
++const FEEDBACKS = ['mdsScene', 'mdsAfterTransition', 'mdsDestinationsShown', 'mdsCue'] as const
++
++/** Re-reads the plugin state. Rebuilds the definitions when the plugin appears or its lists change. */
++export async function refreshMultidestination(self: OBSInstance): Promise<void> {
++	const data = await multidestinationRequest(self, 'GetState', {})
++	const previous = self.multidestination
++	const next = parseMultidestinationState(data)
++	self.multidestination = next
++
++	if (next.available !== previous.available) {
++		logger.info(next.available ? 'Multidestination Studio detected' : 'Multidestination Studio not available')
++	}
++	const listsChanged =
++		next.available !== previous.available ||
++		next.cuesEnabled !== previous.cuesEnabled ||
++		next.scenes.join('\n') !== previous.scenes.join('\n') ||
++		next.transitions.join('\n') !== previous.transitions.join('\n') ||
++		next.cues.join('\n') !== previous.cues.join('\n')
++	if (listsChanged) self.updateActionsFeedbacksVariables()
++	self.checkFeedbacks(...FEEDBACKS)
++}
+diff --git a/src/presets.ts b/src/presets.ts
+index 3a8274b..68b35a9 100644
+--- a/src/presets.ts
++++ b/src/presets.ts
+@@ -13,6 +13,7 @@ import { getReplayPresets } from './presets/replay.js'
+ import { getOutputPresets } from './presets/outputs.js'
+ import { getStudioConfigPresets } from './presets/studio-config.js'
+ import { getSystemPresets } from './presets/system.js'
++import { getMultidestinationPresets } from './presets/multidestination.js'
+ 
+ export function getPresets(this: OBSInstance): {
+ 	presets: CompanionPresetDefinitions<OBSInstanceTypes>
+@@ -32,6 +33,7 @@ export function getPresets(this: OBSInstance): {
+ 		getOutputPresets(this),
+ 		getStudioConfigPresets(this),
+ 		getSystemPresets(this),
++		getMultidestinationPresets(this),
+ 	]
+ 
+ 	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = Object.assign({}, ...parts.map((p) => p.presets))
+diff --git a/src/presets/multidestination.ts b/src/presets/multidestination.ts
+new file mode 100644
+index 0000000..01c91eb
+--- /dev/null
++++ b/src/presets/multidestination.ts
+@@ -0,0 +1,213 @@
++import { CompanionPresetDefinitions, CompanionPresetSection } from '@companion-module/base'
++import type OBSInstance from '../main.js'
++import type { OBSInstanceTypes } from '../main.js'
++import { baseStyle, styleActive, stylePreview, styleProgram } from './style.js'
++
++/**
++ * Multidestination Studio presets: shown only when the OBS plugin answers its vendor requests. They
++ * drive the studio (every destination) rather than the OBS main canvas.
++ */
++export function getMultidestinationPresets(self: OBSInstance): {
++	presets: CompanionPresetDefinitions<OBSInstanceTypes>
++	sections: CompanionPresetSection<OBSInstanceTypes>[]
++} {
++	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = {}
++	const state = self.multidestination
++	if (!state.available) return { presets, sections: [] }
++
++	const sceneFeedbacks = [
++		{
++			feedbackId: 'mdsScene' as const,
++			options: { scene: { value: '$(local:scene)', isExpression: true }, state: 'preview' as const },
++			style: stylePreview(),
++		},
++		{
++			feedbackId: 'mdsScene' as const,
++			options: { scene: { value: '$(local:scene)', isExpression: true }, state: 'program' as const },
++			style: styleProgram(),
++		},
++	]
++
++	presets['tmp_mdsScenePreview'] = {
++		type: 'simple',
++		name: 'Scene to Preview',
++		localVariables: [{ variableType: 'simple', variableName: 'scene', startupValue: '', headline: 'Scene name' }],
++		style: baseStyle({ text: '$(local:scene)' }),
++		steps: [
++			{
++				down: [{ actionId: 'mdsPreviewScene', options: { scene: { value: '$(local:scene)', isExpression: true } } }],
++				up: [],
++			},
++		],
++		feedbacks: sceneFeedbacks,
++	}
++
++	presets['tmp_mdsSceneProgram'] = {
++		type: 'simple',
++		name: 'Scene to Program',
++		localVariables: [{ variableType: 'simple', variableName: 'scene', startupValue: '', headline: 'Scene name' }],
++		style: baseStyle({ text: '$(local:scene)' }),
++		steps: [
++			{
++				down: [{ actionId: 'mdsProgramScene', options: { scene: { value: '$(local:scene)', isExpression: true } } }],
++				up: [],
++			},
++		],
++		feedbacks: sceneFeedbacks,
++	}
++
++	presets['mdsTransition'] = {
++		type: 'simple',
++		keywords: ['take', 'auto'],
++		name: 'Transition (Preview to Program)',
++		style: baseStyle({ text: 'Transition' }),
++		steps: [
++			{
++				down: [{ actionId: 'mdsTransition', options: { transition: '', customDuration: false, duration: 300 } }],
++				up: [],
++			},
++		],
++		feedbacks: [],
++	}
++
++	presets['tmp_mdsQuickTransition'] = {
++		type: 'simple',
++		name: 'Transition With',
++		localVariables: [
++			{ variableType: 'simple', variableName: 'transition', startupValue: '', headline: 'Transition name' },
++		],
++		style: baseStyle({ text: '$(local:transition)' }),
++		steps: [
++			{
++				down: [
++					{
++						actionId: 'mdsTransition',
++						options: {
++							transition: { value: '$(local:transition)', isExpression: true },
++							customDuration: false,
++							duration: 300,
++						},
++					},
++				],
++				up: [],
++			},
++		],
++		feedbacks: [],
++	}
++
++	presets['mdsAfterTransition'] = {
++		type: 'simple',
++		keywords: ['swap', 'after transition'],
++		name: 'After a Transition (toggle)',
++		style: baseStyle({ text: 'Swap\nPGM→PVW' }),
++		steps: [{ down: [{ actionId: 'mdsAfterTransition', options: { mode: 'toggle' } }], up: [] }],
++		feedbacks: [{ feedbackId: 'mdsAfterTransition', options: {}, style: styleActive() }],
++	}
++
++	presets['mdsDestinationsShown'] = {
++		type: 'simple',
++		keywords: ['destinations shown', 'show all'],
++		name: 'Destinations Shown (toggle)',
++		style: baseStyle({ text: 'All\nDestinations' }),
++		steps: [{ down: [{ actionId: 'mdsDestinationsShown', options: { mode: 'toggle' } }], up: [] }],
++		feedbacks: [{ feedbackId: 'mdsDestinationsShown', options: {}, style: styleActive() }],
++	}
++
++	const sceneValues = state.scenes.map((s) => ({ name: s, value: s }))
++	const transitionValues = state.transitions.map((t) => ({ name: t, value: t }))
++
++	const definitions: CompanionPresetSection<OBSInstanceTypes>['definitions'] = [
++		{
++			id: 'mds-scenes-preview',
++			name: 'Scene to Preview',
++			type: 'template',
++			presetId: 'tmp_mdsScenePreview',
++			templateVariableName: 'scene',
++			templateValues: sceneValues,
++		},
++		{
++			id: 'mds-scenes-program',
++			name: 'Scene to Program',
++			type: 'template',
++			presetId: 'tmp_mdsSceneProgram',
++			templateVariableName: 'scene',
++			templateValues: sceneValues,
++		},
++		{ id: 'mds-transition', name: 'Transition', type: 'simple', presets: ['mdsTransition'] },
++		{
++			id: 'mds-transitions',
++			name: 'Transition With',
++			type: 'template',
++			presetId: 'tmp_mdsQuickTransition',
++			templateVariableName: 'transition',
++			templateValues: transitionValues,
++		},
++		{
++			id: 'mds-settings',
++			name: 'Settings',
++			type: 'simple',
++			presets: ['mdsAfterTransition', 'mdsDestinationsShown'],
++		},
++	]
++
++	if (state.cuesEnabled) {
++		presets['tmp_mdsCue'] = {
++			type: 'simple',
++			name: 'Cue to Preview',
++			localVariables: [{ variableType: 'simple', variableName: 'cue', startupValue: '', headline: 'Cue name' }],
++			style: baseStyle({ text: '$(local:cue)' }),
++			steps: [
++				{
++					down: [
++						{
++							actionId: 'mdsCue',
++							options: { mode: 'preview', cue: { value: '$(local:cue)', isExpression: true } },
++						},
++					],
++					up: [],
++				},
++			],
++			feedbacks: [
++				{
++					feedbackId: 'mdsCue',
++					options: { cue: { value: '$(local:cue)', isExpression: true }, state: 'preview' },
++					style: stylePreview(),
++				},
++				{
++					feedbackId: 'mdsCue',
++					options: { cue: { value: '$(local:cue)', isExpression: true }, state: 'running' },
++					style: styleProgram(),
++				},
++			],
++		}
++		presets['mdsCueStop'] = {
++			type: 'simple',
++			name: 'Stop Cue',
++			style: baseStyle({ text: 'Stop\nCue' }),
++			steps: [{ down: [{ actionId: 'mdsCue', options: { mode: 'stop', cue: '' } }], up: [] }],
++			feedbacks: [],
++		}
++		definitions.push(
++			{
++				id: 'mds-cues',
++				name: 'Cue to Preview',
++				type: 'template',
++				presetId: 'tmp_mdsCue',
++				templateVariableName: 'cue',
++				templateValues: state.cues.map((c) => ({ name: c, value: c })),
++			},
++			{ id: 'mds-cue-stop', name: 'Stop Cue', type: 'simple', presets: ['mdsCueStop'] },
++		)
++	}
++
++	const sections: CompanionPresetSection<OBSInstanceTypes>[] = [
++		{
++			id: 'multidestination',
++			name: 'Multidestination Studio',
++			keywords: ['multidestination', 'destinations', 'studio', 'cue'],
++			definitions,
++		},
++	]
++
++	return { presets, sections }
++}
