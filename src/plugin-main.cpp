@@ -181,6 +181,12 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 			studio->Shutdown();
 		TileWidget::ReleaseShared();
 		m.Reset();
+		/* Fenêtre indépendante (sans parent) : détruite ici, avant l'arrêt
+		 * d'OBS, puisque la fermeture de la fenêtre d'OBS ne l'emporte plus. */
+		if (event == OBS_FRONTEND_EVENT_EXIT && studio) {
+			studio->hide();
+			delete studio.data();
+		}
 		break;
 	default:
 		break;
@@ -266,8 +272,10 @@ void obs_module_post_load(void)
 	CueEngine::Get();
 	RemoteControl::Register();
 
-	auto *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-	studio = new StudioWindow(mainWindow);
+	/* Sans parent, comme un projecteur d'OBS : la fenêtre a sa propre entrée
+	 * dans la barre des tâches (le Dock et Mission Control sur macOS), donc
+	 * on la retrouve après l'avoir réduite. */
+	studio = new StudioWindow(nullptr);
 
 	/* Accès de secours par le menu Outils. */
 	auto *toolsAction = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction("Multidestination Studio"));

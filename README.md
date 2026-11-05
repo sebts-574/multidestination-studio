@@ -2,7 +2,7 @@
 
 **Multidestination Studio** is a plugin for [OBS Studio](https://obsproject.com) that turns OBS into a multi-output show controller. It adds independent **destinations** (an LED wall, a set of blended projectors, stage monitors, the stream), each with its own resolution, Preview and Program, all driven from one full-screen studio view with a single TAKE.
 
-Version **1.0.9.1** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
+Version **1.1.0** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
 
 ## Features
 
@@ -14,7 +14,7 @@ Version **1.0.9.1** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-
 - **Mouse editing**: move, resize, crop, centre snapping, undo, reordering, multi-selection, drag and drop of media files.
 - **Organisation**: scene folders (collapsible) and OBS source groups.
 - **Cues** (optional): play several scenes one after the other, each with its pre-wait, transition, duration and post-wait.
-- **Companion / Stream Deck**: follows the OBS Preview and Program scenes (Scene to PVW / Scene to PGM) and answers obs-websocket vendor requests (`multidestination-studio`).
+- **Companion / Stream Deck**: a Companion module with Multidestination Studio presets (scenes, transitions, settings, cues), and obs-websocket vendor requests (`multidestination-studio`).
 - **Transitions**: every OBS transition type can be added from the studio, plus quick transitions between Preview and Program.
 - **Output blending**: spread one destination across several projectors with automatic soft-edge blending, gamma, curve, black level, corner pin and a built-in test pattern.
 - **Projection**: open any destination fullscreen on its screen, or one window per projector for a blended destination.
@@ -26,9 +26,10 @@ Download the file for your system from the [Releases](https://github.com/sebts-5
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10/11 (x64) | `multidestination-studio-1.0.9.1-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
+| Windows 10/11 (x64) | `multidestination-studio-1.1.0-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
 | macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
-| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.0.9.1-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.0.9.1-x86_64-linux-gnu.deb` |
+| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.1.0-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.1.0-x86_64-linux-gnu.deb` |
+| Bitfocus Companion | `obs-studio-4.0.0-multidestination.1.tgz` | Companion OBS Studio module with the Multidestination Studio presets: see [Companion / Stream Deck](docs/companion-module.md). |
 
 Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
 

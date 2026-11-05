@@ -18,11 +18,24 @@ jobs:
     permissions:
       contents: read
 
+  # Module Companion (OBS Studio + presets Multidestination Studio), fourni
+  # tel quel : companion/obs-studio-*.tgz.
+  companion-module:
+    name: Companion Module 🎛️
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload Companion Module 📡
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-module-${{ github.sha }}
+          path: companion/obs-studio-*.tgz
+
   create-release:
     name: Create Release 🛫
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
-    needs: build-project
+    needs: [build-project, companion-module]
     defaults:
       run:
         shell: bash
@@ -82,6 +95,10 @@ jobs:
             done
           done
 
+          for module in companion-module-*/obs-studio-*.tgz; do
+            mv "${module}" "${root_dir}"
+          done
+
       - name: Generate Checksums 🪪
         if: fromJSON(steps.check.outputs.validTag)
         run: |
@@ -90,7 +107,7 @@ jobs:
           shopt -s extglob
 
           echo "### Checksums" > ${{ github.workspace }}/CHECKSUMS.txt
-          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.pkg|*.tar.xz|*.zip); do
+          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.pkg|*.tar.xz|*.zip|*.tgz); do
             echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
           done
 
@@ -111,3 +128,4 @@ jobs:
             ${{ github.workspace }}/*.deb
             ${{ github.workspace }}/*.ddeb
             ${{ github.workspace }}/*.tar.xz
+            ${{ github.workspace }}/*.tgz
