@@ -4,9 +4,11 @@ Changes to the Bitfocus Companion **OBS Studio** module (`bitfocus/companion-mod
 that add a **Multidestination Studio** preset section when the plugin is installed in OBS.
 
 - `UPSTREAM_COMMIT`: the upstream commit the patch applies to.
-- `multidestination-studio.patch`: the changes (new actions, feedbacks, presets; help and changelog).
-- The GitHub workflow `Companion module` applies the patch, runs the module's checks and builds the
-  module package (`.tgz`), available as a workflow artifact.
+- `MODULE_VERSION`: the version given to the built module.
+- `multidestination-studio.patch`: the changes (actions, feedbacks, presets, tests, help, changelog).
+- `RELEASE.md`: installation notes shown on the release page.
 
-Install in Companion: Modules → Import module package → choose the `.tgz`, then use it for the OBS
-connection. Until the change is accepted upstream, this build replaces the official OBS module.
+The GitHub workflow **Companion module** applies the patch, runs the module's checks (format, lint,
+types, tests) and publishes the module package as a `.tgz` on the **companion-module** release of
+this repository. Users download that `.tgz` and import it in Companion (Modules → Import module
+package).
