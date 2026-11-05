@@ -25,13 +25,13 @@ Multidestination Studio adds its own buttons to the **OBS Studio** module of Bit
 
 1. In Companion, open **Modules**.
 2. Click **Import module package** and choose the `.tgz` file.
-3. The module does not appear as a new module: it is added as one more **version of the OBS Studio module** (for example **4.0.1**, next to the official 4.0.0). This is expected.
+3. The module does not appear as a new module: it is added as one more **version of the OBS Studio module** (for example **4.0.100**, next to the official 4.0.0). This is expected.
 
 ## 4. Use this version for your OBS connection
 
 1. Open **Connections**.
-2. **New OBS connection**: add **OBS Studio**, choose the Multidestination Studio version (4.0.1) when Companion asks for the version, then enter the IP address, port and password from step 1.
-3. **Existing OBS connection**: open its settings and change the **module version** to the Multidestination Studio version (4.0.1). Your existing buttons keep working.
+2. **New OBS connection**: add **OBS Studio**, choose the Multidestination Studio version (4.0.100) when Companion asks for the version, then enter the IP address, port and password from step 1.
+3. **Existing OBS connection**: open its settings and change the **module version** to the Multidestination Studio version (4.0.100). Your existing buttons keep working.
 4. The connection turns green when it reaches OBS.
 
 ## 5. Add the buttons
