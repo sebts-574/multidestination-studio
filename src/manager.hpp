@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QObject>
 
+#include <functional>
 #include <memory>
 #include <set>
 #include <string>
@@ -71,8 +72,31 @@ public:
 	 * scène ne couvre pas gardent leur Program. Le Preview reçoit ensuite
 	 * l'ancien Program, comme dans OBS, sauf
 	 * si le réglage SwapAfterTake est désactivé. */
-	void Take(bool cut);
+	/* transition / durationMs : transition d'OBS et durée à utiliser à la
+	 * place des réglages courants (transitions rapides, cues). */
+	void Take(bool cut, obs_source_t *transition = nullptr, int durationMs = -1);
+	/* Passe une scène donnée à l'antenne sans toucher à l'Aperçu.
+	 * skipMain : la destination par défaut y est déjà (changement fait dans
+	 * OBS, par exemple depuis Companion). */
+	void TakeScene(obs_source_t *mainScene, bool cut, obs_source_t *transition = nullptr, int durationMs = -1,
+		       bool skipMain = false);
+	/* Appelé avant Take : renvoie true s'il a pris la main (cue armée). */
+	std::function<bool(bool cut)> takeInterceptor;
 	void OnObsProgramChanged();
+	/* Scène d'aperçu changée dans OBS (Companion « Set Preview Scene »,
+	 * obs-websocket, liste d'OBS en mode Studio). */
+	void OnObsPreviewChanged();
+	/* Active le mode Studio d'OBS sans que son aperçu remplace le nôtre. */
+	void EnableObsStudioMode();
+
+	/* --- Transitions rapides (barre entre Aperçu et Programme) --- */
+	struct QuickTransition {
+		std::string transition; /* uuid de la transition d'OBS */
+		int durationMs = 300;
+	};
+	const std::vector<QuickTransition> &QuickTransitions() const { return quickTransitions; }
+	void SetQuickTransitions(const std::vector<QuickTransition> &list);
+	static OBSSource FindTransition(const std::string &uuidOrName);
 
 	/* --- Cycle de vie de la collection de scènes --- */
 	void Save(obs_data_t *data) const;
@@ -110,6 +134,14 @@ public:
 	bool OpenOutputsOnStartup() const { return openOutputsOnStartup; }
 	void SetOpenOutputsOnStartup(bool value);
 	void SetLanguage(const std::string &value);
+	/* Fonction Cues (désactivée par défaut). */
+	bool CuesEnabled() const { return cuesEnabled; }
+	void SetCuesEnabled(bool value);
+	/* Pilotage externe : suivre la scène d'aperçu / de programme d'OBS. */
+	bool FollowObsPreview() const { return followObsPreview; }
+	void SetFollowObsPreview(bool value);
+	bool FollowObsProgram() const { return followObsProgram; }
+	void SetFollowObsProgram(bool value);
 	bool Ready() const { return ready; }
 
 signals:
@@ -121,6 +153,7 @@ signals:
 	void previewChanged();
 	void programChanged();
 	void settingsChanged();
+	void quickTransitionsChanged();
 
 private:
 	Manager();
@@ -140,6 +173,11 @@ private:
 	std::string language;
 	bool launchOnStartup = false;
 	bool openOutputsOnStartup = false;
+	bool cuesEnabled = false;
+	bool followObsPreview = true;
+	bool followObsProgram = true;
+	bool syncingPreview = false;
+	std::vector<QuickTransition> quickTransitions;
 
 	void LoadSettings();
 	void AdoptOrphanCanvases();

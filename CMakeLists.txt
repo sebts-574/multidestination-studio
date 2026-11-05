@@ -84,6 +84,15 @@ target_sources(
     src/qt-display.cpp
     src/qt-display.hpp
     src/display-helpers.hpp
+    src/cues.cpp
+    src/cues.hpp
+    src/cues-dock.cpp
+    src/cues-dock.hpp
+    src/dock-style.cpp
+    src/dock-style.hpp
+    src/remote-control.cpp
+    src/remote-control.hpp
+    src/obs-websocket-api.h
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

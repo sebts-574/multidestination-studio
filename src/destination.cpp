@@ -17,6 +17,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "destination.hpp"
+
+#include <QCoreApplication>
+#include <QTimer>
+
+#include <algorithm>
 #include "scene-editor.hpp"
 #include "text.hpp"
 
@@ -423,8 +428,32 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 			obs_frontend_set_current_transition(cutTransition);
 			obs_frontend_set_current_scene(linkedScene);
 			obs_frontend_set_current_transition(current);
-		} else {
-			obs_frontend_set_current_scene(linkedScene);
+			return;
+		}
+		/* Transition ou durée imposée (transition rapide, cue) : OBS
+		 * l'utilise le temps de la transition, puis on remet ses réglages
+		 * (sauf si quelqu'un les a changés entre-temps). */
+		const int obsDuration = obs_frontend_get_transition_duration();
+		const bool otherTransition = !cut && templ && current && templ != current.Get();
+		const bool otherDuration = !cut && durationMs > 0 && durationMs != obsDuration;
+		if (otherTransition)
+			obs_frontend_set_current_transition(templ);
+		if (otherDuration)
+			obs_frontend_set_transition_duration(durationMs);
+		obs_frontend_set_current_scene(linkedScene);
+		if (otherTransition || otherDuration) {
+			OBSSource previous = current.Get();
+			OBSSource used = templ;
+			const int restoreAfter = std::max(durationMs, obsDuration) + 250;
+			QTimer::singleShot(restoreAfter, qApp,
+					   [previous, used, otherTransition, otherDuration, obsDuration, durationMs]() {
+						   OBSSourceAutoRelease now = obs_frontend_get_current_transition();
+						   if (otherTransition && now.Get() == used.Get())
+							   obs_frontend_set_current_transition(previous);
+						   if (otherDuration &&
+						       obs_frontend_get_transition_duration() == durationMs)
+							   obs_frontend_set_transition_duration(obsDuration);
+					   });
 		}
 		return;
 	}

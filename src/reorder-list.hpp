@@ -23,7 +23,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPersistentModelIndex>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QTreeWidget>
 
@@ -39,6 +41,35 @@ with this program. If not, see <https://www.gnu.org/licenses/>
  * - un dépôt à la souris n'est pas appliqué par Qt : onMove reçoit la ligne
  *   visée et la position (au-dessus, dedans, en dessous), et la fenêtre
  *   applique le déplacement elle-même (scènes d'OBS, groupes...). */
+/* Icônes cliquables à droite de la ligne (œil, cadenas), dessinées par-dessus
+ * la ligne : la sélection reste d'un seul tenant, comme dans OBS. */
+class TrailingIconDelegate : public QStyledItemDelegate {
+public:
+	using QStyledItemDelegate::QStyledItemDelegate;
+	static constexpr int IconRole = Qt::UserRole + 20;
+	int count = 0;
+
+	static QRect IconRect(const QRect &row, int i, int count)
+	{
+		const int size = 16;
+		const int step = 24;
+		const int x = row.right() - 6 - (count - i) * step + (step - size) / 2;
+		return QRect(x, row.center().y() - size / 2 + 1, size, size);
+	}
+
+	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+	{
+		QStyledItemDelegate::paint(painter, option, index);
+		if (index.column() != 0)
+			return;
+		for (int i = 0; i < count; i++) {
+			const QIcon icon = index.data(IconRole + i).value<QIcon>();
+			if (!icon.isNull())
+				icon.paint(painter, IconRect(option.rect, i, count));
+		}
+	}
+};
+
 class OrganizerTree : public QTreeWidget {
 public:
 	explicit OrganizerTree(QWidget *parent, int columns = 1) : QTreeWidget(parent)
@@ -75,6 +106,16 @@ public:
 	static_assert(int(OnItem) == DropOn && int(AboveItem) == DropAbove && int(BelowItem) == DropBelow &&
 		      int(OnViewport) == DropViewport);
 
+	/* Icônes cliquables à droite (rôle TrailingIconDelegate::IconRole + i). */
+	void SetTrailingIcons(int count)
+	{
+		auto *delegate = new TrailingIconDelegate(this);
+		delegate->count = count;
+		trailingIcons = count;
+		setItemDelegate(delegate);
+	}
+	std::function<void(QTreeWidgetItem *item, int icon)> onIconClicked;
+
 	std::function<void()> onDelete;
 	/* Bouton de la souris relâché (aussi après un glisser). */
 	std::function<void()> onReleased;
@@ -90,6 +131,18 @@ protected:
 		 * zone vide : sélection de plusieurs éléments. Ctrl / Maj : pas de
 		 * glisser, sélection seulement. */
 		QTreeWidgetItem *item = itemAt(event->position().toPoint());
+		if (item && trailingIcons > 0 && event->button() == Qt::LeftButton && onIconClicked) {
+			const QRect rect = visualRect(indexFromItem(item, 0));
+			for (int i = 0; i < trailingIcons; i++) {
+				if (TrailingIconDelegate::IconRect(rect, i, trailingIcons)
+					    .adjusted(-4, -4, 4, 4)
+					    .contains(event->position().toPoint())) {
+					onIconClicked(item, i);
+					event->accept();
+					return;
+				}
+			}
+		}
 		const bool modifiers = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier);
 		setDragEnabled(item && !modifiers);
 		pressed = event->button() == Qt::LeftButton;
@@ -160,4 +213,5 @@ protected:
 
 private:
 	bool pressed = false;
+	int trailingIcons = 0;
 };

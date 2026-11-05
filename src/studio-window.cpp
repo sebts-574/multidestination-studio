@@ -20,12 +20,15 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "audio-mixer.hpp"
 #include "destination.hpp"
 #include "dialogs.hpp"
+#include "dock-style.hpp"
 #include "manager.hpp"
 #include "media-controls.hpp"
 #include "projector-window.hpp"
 #include "reorder-list.hpp"
 #include "manage-destinations.hpp"
 #include "blend-editor.hpp"
+#include "cues.hpp"
+#include "cues-dock.hpp"
 #include "text.hpp"
 #include "tile-grid.hpp"
 #include "undo.hpp"
@@ -56,6 +59,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCursor>
 #include <QStyle>
 #include <QTimer>
+#include <QToolBar>
 #include <QTreeWidget>
 #include <set>
 #include <QToolButton>
@@ -83,80 +87,22 @@ static QToolButton *ToolButton(const QString &text, const QString &tip, QWidget 
 	b->setToolTip(tip);
 	b->setAutoRaise(true);
 	b->setFixedSize(28, 24);
-	QFont font = b->font();
-	font.setPointSizeF(font.pointSizeF() * 1.15);
-	b->setFont(font);
 	return b;
 }
 
-static QToolButton *IconButton(const QIcon &icon, const QString &tip, QWidget *parent)
+/* Icône du thème d'OBS (classe icon-…) sur un bouton seul. */
+static void SetIconClass(QAbstractButton *button, const char *iconClass)
 {
-	auto *b = new QToolButton(parent);
-	b->setIcon(icon);
-	b->setToolTip(tip);
-	b->setAutoRaise(true);
-	b->setFixedSize(28, 24);
-	return b;
+	button->setProperty("class", iconClass);
+	button->style()->unpolish(button);
+	button->style()->polish(button);
 }
 
-/* Petites icônes dessinées (œil, cadenas) : nettes sur tous les écrans et
- * à la couleur du thème. */
-static QIcon PaintedIcon(const QColor &color, const std::function<void(QPainter &)> &draw)
-{
-	QPixmap pm(32, 32);
-	pm.setDevicePixelRatio(2.0);
-	pm.fill(Qt::transparent);
-	QPainter p(&pm);
-	p.setRenderHint(QPainter::Antialiasing);
-	p.setPen(QPen(color, 1.3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-	p.setBrush(Qt::NoBrush);
-	draw(p);
-	p.end();
-	return QIcon(pm);
-}
+static std::vector<QTreeWidgetItem *> SelectedRowsInOrder(QTreeWidget *tree);
 
-static QIcon EyeIcon(bool visible, QColor color)
-{
-	if (!visible)
-		color.setAlphaF(0.35f);
-	return PaintedIcon(color, [visible, color](QPainter &p) {
-		QPainterPath eye;
-		eye.moveTo(1.5, 8);
-		eye.quadTo(8, 1.5, 14.5, 8);
-		eye.quadTo(8, 14.5, 1.5, 8);
-		p.drawPath(eye);
-		if (visible) {
-			p.setBrush(color);
-			p.drawEllipse(QPointF(8, 8), 2.2, 2.2);
-		} else {
-			p.drawLine(QPointF(3, 13), QPointF(13, 3));
-		}
-	});
-}
-
-static QIcon LockIcon(bool locked, QColor color)
-{
-	if (!locked)
-		color.setAlphaF(0.3f);
-	return PaintedIcon(color, [locked, color](QPainter &p) {
-		if (locked)
-			p.drawArc(QRectF(5, 2.5, 6, 8), 0, 180 * 16);
-		else
-			p.drawArc(QRectF(8, 1.5, 6, 8), 0, 180 * 16);
-		if (locked)
-			p.drawLine(QPointF(5, 6.5), QPointF(5, 8));
-		p.drawLine(QPointF(11, 6.5), QPointF(11, 8));
-		if (!locked)
-			p.drawLine(QPointF(14, 5.5), QPointF(14, 6.5));
-		p.setBrush(color);
-		p.drawRoundedRect(QRectF(3.5, 8, 9, 6.5), 1.2, 1.2);
-	});
-}
-
-/* Colonnes de la liste des sources. */
-static constexpr int SOURCE_COL_NAME = 0;
-static constexpr int SOURCE_COL_VISIBLE = 1;
-static constexpr int SOURCE_COL_LOCK = 2;
+/* Rôles des icônes à droite des sources. */
+static constexpr int SOURCE_ICON_VISIBLE = 0;
+static constexpr int SOURCE_ICON_LOCK = 1;
 
 /* Contenu d'un dock : liste + barre de boutons en bas, comme dans OBS. */
 /* Lignes de la liste des scènes (Qt::UserRole + 1). */
@@ -164,20 +110,6 @@ static constexpr int SCENE_ROW_SCENE = 1;
 static constexpr int SCENE_ROW_FOLDER = 2;
 /* Lignes de la liste des sources : Qt::UserRole = id de l'élément,
  * Qt::UserRole + 1 = id du groupe parent (0 = premier niveau). */
-
-static QWidget *ListPanel(QWidget *list, QHBoxLayout *buttons, QWidget *parent)
-{
-	auto *panel = new QWidget(parent);
-	auto *layout = new QVBoxLayout(panel);
-	layout->setContentsMargins(0, 0, 0, 0);
-	layout->setSpacing(0);
-	layout->addWidget(list, 1);
-	buttons->setContentsMargins(2, 2, 2, 2);
-	buttons->setSpacing(2);
-	buttons->addStretch(1);
-	layout->addLayout(buttons);
-	return panel;
-}
 
 static QDockWidget *Dock(const QString &title, const char *objectName, QWidget *content, QWidget *parent)
 {
@@ -238,6 +170,7 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 	BuildDocks();
 	BuildMenus();
 	BuildWindowControls();
+	ApplyCuesFeature();
 
 	Manager &m = Manager::Get();
 	connect(&m, &Manager::previewChanged, this, &StudioWindow::RebuildGrids);
@@ -255,10 +188,13 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 		}
 	});
 	connect(&m, &Manager::programChanged, this, &StudioWindow::RefreshTally);
+	connect(&m, &Manager::quickTransitionsChanged, this, &StudioWindow::RefreshQuickTransitions);
+	connect(&m, &Manager::settingsChanged, this, &StudioWindow::ApplyCuesFeature);
 	connect(&m, &Manager::aboutToReset, this, &StudioWindow::OnReset);
 	connect(&m, &Manager::loaded, this, [this]() {
 		RefreshScenes();
 		RefreshTransitions();
+		RefreshQuickTransitions();
 		UpdateControls();
 		UpdateGrids(true);
 	});
@@ -395,6 +331,12 @@ void StudioWindow::BuildCentral()
 	folderTakeNote->setStyleSheet("color: #ffb74d; font-size: 11px;");
 	folderTakeNote->hide();
 	controls->addWidget(folderTakeNote);
+	/* Transitions rapides, comme le mode Studio d'OBS. */
+	quickPanel = new QWidget(monitors);
+	auto *quickLayout = new QVBoxLayout(quickPanel);
+	quickLayout->setContentsMargins(0, 8, 0, 0);
+	quickLayout->setSpacing(4);
+	controls->addWidget(quickPanel);
 	controls->addStretch(5);
 	layout->addLayout(controls);
 
@@ -512,32 +454,61 @@ void StudioWindow::BuildDocks()
 		else
 			EditScene(SelectedScene());
 	});
-	auto *sceneButtons = new QHBoxLayout();
-	auto *addScene = ToolButton("+", Tr("MDS.AddScene"), this);
-	auto *removeScene = ToolButton("−", Tr("MDS.RemoveScene"), this);
-	auto *editScene = ToolButton("⚙", Tr("MDS.SceneSettingsMenu"), this);
-	auto *folderButton =
-		IconButton(style()->standardIcon(QStyle::SP_FileDialogNewFolder), Tr("MDS.GroupInFolderTip"), this);
-	connect(addScene, &QToolButton::clicked, this, &StudioWindow::AddScene);
-	connect(removeScene, &QToolButton::clicked, this, [this]() { RemoveSelectedScenes(); });
-	connect(editScene, &QToolButton::clicked, this, [this]() { EditScene(SelectedScene()); });
-	connect(folderButton, &QToolButton::clicked, this, &StudioWindow::NewSceneFolder);
-	sceneButtons->addWidget(addScene);
-	sceneButtons->addWidget(removeScene);
-	sceneButtons->addWidget(editScene);
-	sceneButtons->addWidget(folderButton);
-	auto *upScene = ToolButton("↑", Tr("MDS.MoveUp"), this);
-	auto *downScene = ToolButton("↓", Tr("MDS.MoveDown"), this);
-	connect(upScene, &QToolButton::clicked, this, [this]() { MoveScene(-1); });
-	connect(downScene, &QToolButton::clicked, this, [this]() { MoveScene(1); });
-	sceneButtons->addWidget(upScene);
-	sceneButtons->addWidget(downScene);
-	Dock(Tr("MDS.Scenes"), "mdsScenesDock", ListPanel(sceneList, sceneButtons, this), this);
+	/* Barre du bas comme celle d'OBS (icônes du thème). */
+	QStyle *st = style();
+	QToolBar *sceneBar = DockStyle::Toolbar(this);
+	DockStyle::AddAction(sceneBar, "icon-plus", DockStyle::PlusIcon(), Tr("MDS.AddScene"),
+			     [this]() { AddScene(); });
+	DockStyle::AddAction(sceneBar, "icon-trash", st->standardIcon(QStyle::SP_TrashIcon), Tr("MDS.RemoveScene"),
+			     [this]() { RemoveSelectedScenes(); });
+	sceneBar->addSeparator();
+	DockStyle::AddAction(sceneBar, "icon-gear", st->standardIcon(QStyle::SP_FileDialogDetailedView),
+			     Tr("MDS.SceneSettingsMenu"), [this]() { EditScene(SelectedScene()); });
+	DockStyle::AddAction(sceneBar, "icon-filter", st->standardIcon(QStyle::SP_FileDialogContentsView),
+			     Tr("MDS.SceneFilters"), [this]() {
+				     if (OBSSource scene = SelectedScene())
+					     obs_frontend_open_source_filters(scene);
+			     });
+	{
+		QIcon folderIcon = DockStyle::MainIcon("groupIcon");
+		if (folderIcon.isNull())
+			folderIcon = st->standardIcon(QStyle::SP_FileDialogNewFolder);
+		DockStyle::AddAction(sceneBar, nullptr, folderIcon, Tr("MDS.GroupInFolderTip"),
+				     [this]() { NewSceneFolder(); });
+	}
+	sceneBar->addSeparator();
+	DockStyle::AddAction(sceneBar, "icon-up", st->standardIcon(QStyle::SP_ArrowUp), Tr("MDS.MoveUp"),
+			     [this]() { MoveScene(-1); });
+	DockStyle::AddAction(sceneBar, "icon-down", st->standardIcon(QStyle::SP_ArrowDown), Tr("MDS.MoveDown"),
+			     [this]() { MoveScene(1); });
+	DockStyle::StyleTree(sceneList);
+	Dock(Tr("MDS.Scenes"), "mdsScenesDock", DockStyle::Panel(sceneList, sceneBar, this), this);
 
 	/* --- Sources --- */
 	/* Glisser-déposer pour changer l'ordre (haut de la liste = devant),
 	 * cliquer-glisser pour sélectionner plusieurs sources. */
-	auto *sources = new OrganizerTree(this, 3);
+	auto *sources = new OrganizerTree(this);
+	sources->SetTrailingIcons(2);
+	sources->onIconClicked = [this](QTreeWidgetItem *row, int icon) {
+		OBSSceneItem item = ItemFromRow(row);
+		if (!item)
+			return;
+		const QColor color = sourceList->palette().color(QPalette::Text);
+		const QSignalBlocker blocker(sourceList);
+		if (icon == SOURCE_ICON_VISIBLE) {
+			Undo::PushSceneState(ActiveScene());
+			const bool visible = !obs_sceneitem_visible(item);
+			obs_sceneitem_set_visible(item, visible);
+			row->setData(0, TrailingIconDelegate::IconRole + SOURCE_ICON_VISIBLE,
+				     DockStyle::VisibilityIcon(visible, color));
+			AfterEdit();
+		} else {
+			const bool locked = !obs_sceneitem_locked(item);
+			obs_sceneitem_set_locked(item, locked);
+			row->setData(0, TrailingIconDelegate::IconRole + SOURCE_ICON_LOCK,
+				     DockStyle::LockIcon(locked, color));
+		}
+	};
 	sources->onDelete = [this]() {
 		EditRemove();
 	};
@@ -570,13 +541,13 @@ void StudioWindow::BuildDocks()
 	});
 	/* Renommer (F2, double-clic lent ou menu). */
 	connect(sourceList, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem *row, int column) {
-		if (refreshingSources || column != SOURCE_COL_NAME)
+		if (refreshingSources || column != 0)
 			return;
 		OBSSceneItem item = ItemFromRow(row);
 		if (!item)
 			return;
 		obs_source_t *source = obs_sceneitem_get_source(item);
-		const QString name = row->text(SOURCE_COL_NAME).trimmed();
+		const QString name = row->text(0).trimmed();
 		if (name == QString::fromUtf8(obs_source_get_name(source)))
 			return;
 		if (!name.isEmpty()) {
@@ -587,27 +558,6 @@ void StudioWindow::BuildDocks()
 				obs_source_set_name(source, name.toUtf8().constData());
 		}
 		QTimer::singleShot(0, this, &StudioWindow::RefreshSources);
-	});
-	/* Œil et cadenas, comme dans OBS. */
-	connect(sourceList, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *row, int column) {
-		if (column != SOURCE_COL_VISIBLE && column != SOURCE_COL_LOCK)
-			return;
-		OBSSceneItem item = ItemFromRow(row);
-		if (!item)
-			return;
-		const QColor color = sourceList->palette().color(QPalette::Text);
-		const QSignalBlocker blocker(sourceList);
-		if (column == SOURCE_COL_VISIBLE) {
-			Undo::PushSceneState(ActiveScene());
-			const bool visible = !obs_sceneitem_visible(item);
-			obs_sceneitem_set_visible(item, visible);
-			row->setIcon(SOURCE_COL_VISIBLE, EyeIcon(visible, color));
-			AfterEdit();
-		} else {
-			const bool locked = !obs_sceneitem_locked(item);
-			obs_sceneitem_set_locked(item, locked);
-			row->setIcon(SOURCE_COL_LOCK, LockIcon(locked, color));
-		}
 	});
 	auto groupCollapsed = [this](QTreeWidgetItem *row, bool collapsed) {
 		if (refreshingSources)
@@ -632,27 +582,40 @@ void StudioWindow::BuildDocks()
 	connect(sourceList, &QTreeWidget::customContextMenuRequested, this,
 		[this](const QPoint &pos) { ShowItemMenu(sourceList->viewport()->mapToGlobal(pos)); });
 
-	auto *sourceButtons = new QHBoxLayout();
-	addSourceButton = ToolButton("+", Tr("MDS.AddSource"), this);
-	connect(addSourceButton, &QToolButton::clicked, this, &StudioWindow::ShowAddSourceMenu);
-	auto *removeSource = ToolButton("−", Tr("MDS.RemoveSource"), this);
-	auto *propSource = ToolButton("⚙", Tr("MDS.Properties"), this);
-	auto *upSource = ToolButton("↑", Tr("MDS.MoveUp"), this);
-	auto *downSource = ToolButton("↓", Tr("MDS.MoveDown"), this);
-	auto *groupSource =
-		IconButton(style()->standardIcon(QStyle::SP_FileDialogNewFolder), Tr("MDS.GroupSources"), this);
-	connect(groupSource, &QToolButton::clicked, this, &StudioWindow::EditGroup);
-	connect(removeSource, &QToolButton::clicked, this, &StudioWindow::EditRemove);
-	connect(propSource, &QToolButton::clicked, this, &StudioWindow::EditProperties);
-	connect(upSource, &QToolButton::clicked, this, &StudioWindow::EditMoveUp);
-	connect(downSource, &QToolButton::clicked, this, &StudioWindow::EditMoveDown);
-	sourceButtons->addWidget(addSourceButton);
-	sourceButtons->addWidget(removeSource);
-	sourceButtons->addWidget(propSource);
-	sourceButtons->addWidget(groupSource);
-	sourceButtons->addWidget(upSource);
-	sourceButtons->addWidget(downSource);
-	Dock(Tr("MDS.Sources"), "mdsSourcesDock", ListPanel(sourceList, sourceButtons, this), this);
+	QToolBar *sourceBar = DockStyle::Toolbar(this);
+	QAction *addSource = DockStyle::AddAction(sourceBar, "icon-plus", DockStyle::PlusIcon(), Tr("MDS.AddSource"),
+						  [this]() { ShowAddSourceMenu(); });
+	addSourceButton = qobject_cast<QToolButton *>(sourceBar->widgetForAction(addSource));
+	DockStyle::AddAction(sourceBar, "icon-trash", st->standardIcon(QStyle::SP_TrashIcon), Tr("MDS.RemoveSource"),
+			     [this]() { EditRemove(); });
+	DockStyle::AddAction(sourceBar, "icon-gear", st->standardIcon(QStyle::SP_FileDialogDetailedView),
+			     Tr("MDS.Properties"), [this]() { EditProperties(); });
+	sourceBar->addSeparator();
+	{
+		QIcon groupIcon = DockStyle::MainIcon("groupIcon");
+		if (groupIcon.isNull())
+			groupIcon = st->standardIcon(QStyle::SP_FileDialogNewFolder);
+		DockStyle::AddAction(sourceBar, nullptr, groupIcon, Tr("MDS.GroupSources"), [this]() { EditGroup(); });
+	}
+	sourceBar->addSeparator();
+	DockStyle::AddAction(sourceBar, "icon-up", st->standardIcon(QStyle::SP_ArrowUp), Tr("MDS.MoveUp"),
+			     [this]() { EditMoveUp(); });
+	DockStyle::AddAction(sourceBar, "icon-down", st->standardIcon(QStyle::SP_ArrowDown), Tr("MDS.MoveDown"),
+			     [this]() { EditMoveDown(); });
+	DockStyle::StyleTree(sourceList, true);
+	Dock(Tr("MDS.Sources"), "mdsSourcesDock", DockStyle::Panel(sourceList, sourceBar, this), this);
+
+	/* --- Cues (fonction optionnelle, voir Réglages) --- */
+	cuesPanel = new CuesPanel(this);
+	cuesPanel->selectedScenes = [this]() {
+		std::vector<std::string> uuids;
+		for (QTreeWidgetItem *row : SelectedRowsInOrder(sceneList)) {
+			if (row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_SCENE)
+				uuids.push_back(row->data(0, Qt::UserRole).toString().toStdString());
+		}
+		return uuids;
+	};
+	cuesDock = Dock(Tr("MDS.Cues"), "mdsCuesDock", cuesPanel, this);
 
 	/* --- Mixeur audio --- */
 	mixer = new AudioMixer(this, false);
@@ -672,6 +635,13 @@ void StudioWindow::BuildDocks()
 		if (refreshingTransitions || index < 0)
 			return;
 		const QString wanted = transitionCombo->itemData(index).toString();
+		/* « + Type » : nouvelle transition d'OBS de ce type. */
+		if (wanted.startsWith("type:")) {
+			const QString display = transitionCombo->itemData(index, Qt::UserRole + 1).toString();
+			RefreshTransitions();
+			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
+			return;
+		}
 		struct obs_frontend_source_list list = {};
 		obs_frontend_get_transitions(&list);
 		for (size_t i = 0; i < list.sources.num; i++) {
@@ -682,13 +652,25 @@ void StudioWindow::BuildDocks()
 		RefreshTransitions();
 	});
 	row->addWidget(transitionCombo, 1);
-	auto *transitionProps = ToolButton("⚙", Tr("MDS.TransitionProperties"), transitions);
+	auto *transitionProps = ToolButton(QString(), Tr("MDS.TransitionProperties"), transitions);
+	transitionProps->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+	SetIconClass(transitionProps, "icon-gear");
 	connect(transitionProps, &QToolButton::clicked, this, []() {
 		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
 		if (current)
 			obs_frontend_open_source_properties(current);
 	});
 	row->addWidget(transitionProps);
+	/* Supprimer : bouton d'OBS (avec sa confirmation). */
+	auto *transitionRemove = ToolButton(QString(), Tr("MDS.TransitionRemove"), transitions);
+	transitionRemove->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+	SetIconClass(transitionRemove, "icon-trash");
+	connect(transitionRemove, &QToolButton::clicked, this, []() {
+		auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+		if (auto *button = main ? main->findChild<QPushButton *>("transitionRemove") : nullptr)
+			button->click();
+	});
+	row->addWidget(transitionRemove);
 	tl->addLayout(row);
 	auto *durationRow = new QHBoxLayout();
 	durationRow->addWidget(new QLabel(Tr("MDS.Duration"), transitions));
@@ -752,12 +734,23 @@ void StudioWindow::BuildDocks()
  * avec ces proportions (d'après la maquette de Sébastien, en 1920×1080). */
 void StudioWindow::ResetDocks()
 {
-	const char *names[] = {"mdsScenesDock", "mdsSourcesDock",     "mdsMediaDock",
-			       "mdsMixerDock",  "mdsTransitionsDock", "mdsControlsDock"};
+	/* Cues (si la fonction est activée) entre Sources et Contrôles média. */
+	const bool cues = Manager::Get().CuesEnabled();
+	std::vector<const char *> names = {"mdsScenesDock", "mdsSourcesDock"};
+	if (cues)
+		names.push_back("mdsCuesDock");
+	for (const char *n : {"mdsMediaDock", "mdsMixerDock", "mdsTransitionsDock", "mdsControlsDock"})
+		names.push_back(n);
 	QList<QDockWidget *> docks;
 	for (const char *name : names) {
 		if (auto *dock = findChild<QDockWidget *>(name))
 			docks << dock;
+	}
+	if (cuesDock && !cues) {
+		cuesDock->setFloating(false);
+		if (dockWidgetArea(cuesDock) != Qt::NoDockWidgetArea)
+			removeDockWidget(cuesDock);
+		cuesDock->hide();
 	}
 	if (docks.isEmpty())
 		return;
@@ -779,20 +772,29 @@ void StudioWindow::ResetDocks()
 
 void StudioWindow::ApplyDefaultDockSizes()
 {
+	const bool cues = Manager::Get().CuesEnabled() && cuesDock && !cuesDock->isHidden();
+	std::vector<std::pair<const char *, int>> parts = {{"mdsScenesDock", 298}, {"mdsSourcesDock", 327}};
+	if (cues)
+		parts.push_back({"mdsCuesDock", 330});
+	for (auto p : std::vector<std::pair<const char *, int>>{{"mdsMediaDock", 420},
+								{"mdsMixerDock", 285},
+								{"mdsTransitionsDock", 295},
+								{"mdsControlsDock", 268}})
+		parts.push_back(p);
 	QList<QDockWidget *> docks;
-	for (const char *name : {"mdsScenesDock", "mdsSourcesDock", "mdsMediaDock", "mdsMixerDock",
-				 "mdsTransitionsDock", "mdsControlsDock"}) {
-		if (auto *dock = findChild<QDockWidget *>(name))
+	int total = 0;
+	for (auto &p : parts) {
+		if (auto *dock = findChild<QDockWidget *>(p.first))
 			docks << dock;
+		total += p.second;
 	}
-	if (docks.size() != 6)
+	if (docks.size() != int(parts.size()))
 		return;
 	const int W = std::max(width(), 1200);
 	const int H = std::max(height(), 700);
-	const int parts[6] = {298, 327, 420, 285, 295, 268}; /* total 1893 */
 	QList<int> widths;
-	for (int p : parts)
-		widths << W * p / 1893;
+	for (auto &p : parts)
+		widths << W * p.second / total;
 	resizeDocks(docks, widths, Qt::Horizontal);
 	resizeDocks({docks.front()}, {H * 242 / 1080}, Qt::Vertical);
 }
@@ -905,9 +907,14 @@ void StudioWindow::BuildMenus()
 		if (Dialogs::EditDisplaySetting(this, showAll))
 			Manager::Get().SetShowAllDestinations(showAll);
 	});
+	connect(settingsMenu->addAction(Tr("MDS.SettingCompanionMenu")), &QAction::triggered, this,
+		&StudioWindow::EditCompanionSetting);
+	settingsMenu->addSeparator();
+	connect(settingsMenu->addAction(Tr("MDS.SettingCuesMenu")), &QAction::triggered, this,
+		&StudioWindow::EditCuesSetting);
+	settingsMenu->addSeparator();
 	connect(settingsMenu->addAction(Tr("MDS.SettingStartupMenu")), &QAction::triggered, this,
 		[this]() { Dialogs::EditStartupSetting(this); });
-	settingsMenu->addSeparator();
 	connect(settingsMenu->addAction(Tr("MDS.SettingLanguageMenu")), &QAction::triggered, this, [this]() {
 		std::string locale = Manager::Get().Language();
 		if (!Dialogs::EditLanguageSetting(this, locale) || locale == Manager::Get().Language())
@@ -1030,7 +1037,7 @@ void StudioWindow::Open()
 	/* La destination par défaut est protégée comme les autres par le mode
 	 * Studio d'OBS (« Dupliquer la scène ») : on l'active si besoin. */
 	if (!obs_frontend_preview_program_mode_active()) {
-		obs_frontend_set_preview_program_mode(true);
+		Manager::Get().EnableObsStudioMode();
 		enabledObsStudioMode = true;
 	}
 
@@ -1134,6 +1141,53 @@ void StudioWindow::RestoreLayout(const QByteArray &state)
 {
 	if (!state.isEmpty() && restoreState(state))
 		defaultDocksPending = false;
+	ApplyCuesFeature();
+}
+
+/* Dock Cues affiché seulement si la fonction est activée ; à l'activation,
+ * il prend sa place entre Sources et Contrôles média. */
+void StudioWindow::ApplyCuesFeature()
+{
+	if (!cuesDock)
+		return;
+	const bool enabled = Manager::Get().CuesEnabled();
+	cuesDock->toggleViewAction()->setVisible(enabled);
+	if (!enabled) {
+		cuesDock->hide();
+		CueEngine::Get().Disarm();
+		return;
+	}
+	if (!cuesDock->isHidden() && dockWidgetArea(cuesDock) != Qt::NoDockWidgetArea)
+		return;
+	auto *sources = findChild<QDockWidget *>("mdsSourcesDock");
+	cuesDock->setFloating(false);
+	if (sources && dockWidgetArea(sources) != Qt::NoDockWidgetArea && !sources->isFloating())
+		splitDockWidget(sources, cuesDock, Qt::Horizontal);
+	else
+		addDockWidget(Qt::BottomDockWidgetArea, cuesDock);
+	cuesDock->show();
+	if (auto *s = findChild<QDockWidget *>("mdsSourcesDock"))
+		resizeDocks({s, cuesDock}, {s->width() / 2 + 1, s->width() / 2 + 1}, Qt::Horizontal);
+}
+
+void StudioWindow::EditCuesSetting()
+{
+	Dialogs::EditSwitchSetting(this, Tr("MDS.SettingCues"), Tr("MDS.SettingCuesNote"),
+				   {{Tr("MDS.SettingCuesActivate"), Manager::Get().CuesEnabled(), [](bool on) {
+					     Manager::Get().SetCuesEnabled(on);
+				     }}});
+}
+
+void StudioWindow::EditCompanionSetting()
+{
+	Dialogs::EditSwitchSetting(this, Tr("MDS.SettingCompanion"), Tr("MDS.SettingCompanionNote"),
+				   {{Tr("MDS.SettingFollowPreview"), Manager::Get().FollowObsPreview(),
+				     [](bool on) {
+					     Manager::Get().SetFollowObsPreview(on);
+				     }},
+				    {Tr("MDS.SettingFollowProgram"), Manager::Get().FollowObsProgram(), [](bool on) {
+					     Manager::Get().SetFollowObsProgram(on);
+				     }}});
 }
 
 void StudioWindow::UpdateControls()
@@ -1566,7 +1620,8 @@ static QTreeWidgetItem *MakeFolderRow(const QString &name)
 	row->setData(0, Qt::UserRole + 1, SCENE_ROW_FOLDER);
 	row->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled |
 		      Qt::ItemIsEditable);
-	row->setIcon(0, QApplication::style()->standardIcon(QStyle::SP_DirIcon));
+	QIcon icon = DockStyle::MainIcon("groupIcon");
+	row->setIcon(0, icon.isNull() ? QApplication::style()->standardIcon(QStyle::SP_DirIcon) : icon);
 	return row;
 }
 
@@ -1798,6 +1853,8 @@ void StudioWindow::UpdateTakeButtons()
 	const bool folder = row && row->isSelected() && row->data(0, Qt::UserRole + 1).toInt() == SCENE_ROW_FOLDER;
 	transitionButton->setEnabled(!folder);
 	cutButton->setEnabled(!folder);
+	for (QPushButton *b : quickButtons)
+		b->setEnabled(!folder && b->text() != Tr("MDS.QuickTransitionMissing"));
 	folderTakeNote->setVisible(folder);
 }
 
@@ -2149,7 +2206,7 @@ static QTreeWidgetItem *MakeSourceRow(obs_sceneitem_t *item, int64_t parentId, c
 	obs_source_t *src = obs_sceneitem_get_source(item);
 	auto *row = new QTreeWidgetItem();
 	const bool group = obs_sceneitem_is_group(item);
-	row->setText(SOURCE_COL_NAME, QString::fromUtf8(obs_source_get_name(src)));
+	row->setText(0, QString::fromUtf8(obs_source_get_name(src)));
 	/* Tout se glisse ; on dépose dans un groupe (pas dans une source). */
 	Qt::ItemFlags flags = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsEditable;
 	if (group)
@@ -2158,12 +2215,15 @@ static QTreeWidgetItem *MakeSourceRow(obs_sceneitem_t *item, int64_t parentId, c
 	row->setData(0, Qt::UserRole, qlonglong(obs_sceneitem_get_id(item)));
 	row->setData(0, Qt::UserRole + 1, qlonglong(parentId));
 	row->setData(0, Qt::UserRole + 2, group);
-	if (group)
-		row->setIcon(SOURCE_COL_NAME, QApplication::style()->standardIcon(QStyle::SP_DirIcon));
-	row->setIcon(SOURCE_COL_VISIBLE, EyeIcon(obs_sceneitem_visible(item), color));
-	row->setIcon(SOURCE_COL_LOCK, LockIcon(obs_sceneitem_locked(item), color));
-	row->setToolTip(SOURCE_COL_VISIBLE, Tr("MDS.Visible"));
-	row->setToolTip(SOURCE_COL_LOCK, Tr("MDS.LockSource"));
+	/* Icône du type de source, comme OBS. */
+	QIcon icon = DockStyle::SourceIcon(src);
+	if (icon.isNull() && group)
+		icon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
+	row->setIcon(0, icon);
+	row->setData(0, TrailingIconDelegate::IconRole + SOURCE_ICON_VISIBLE,
+		     DockStyle::VisibilityIcon(obs_sceneitem_visible(item), color));
+	row->setData(0, TrailingIconDelegate::IconRole + SOURCE_ICON_LOCK,
+		     DockStyle::LockIcon(obs_sceneitem_locked(item), color));
 	return row;
 }
 
@@ -2852,9 +2912,183 @@ void StudioWindow::RefreshTransitions()
 	}
 	obs_frontend_source_list_free(&list);
 
+	/* Tous les types de transition d'OBS : en choisir un en ajoute une. */
+	transitionCombo->insertSeparator(transitionCombo->count());
+	size_t idx = 0;
+	const char *id = nullptr;
+	while (obs_enum_transition_types(idx++, &id)) {
+		if (!obs_is_source_configurable(id))
+			continue;
+		const QString display = QString::fromUtf8(obs_source_get_display_name(id));
+		transitionCombo->addItem(Tr("MDS.TransitionAddType").arg(display), QString("type:") + id);
+		transitionCombo->setItemData(transitionCombo->count() - 1, display, Qt::UserRole + 1);
+	}
+
 	durationSpin->setValue(obs_frontend_get_transition_duration());
 	durationSpin->setEnabled(current && !obs_transition_fixed(current));
 	refreshingTransitions = false;
+	RefreshQuickTransitions();
+}
+
+/* Nouvelle transition d'OBS d'un type : on passe par le bouton « + »
+ * d'OBS (son menu, sa fenêtre de nom et de propriétés), pour qu'elle soit
+ * enregistrée et utilisable partout dans OBS. */
+void StudioWindow::CreateObsTransition(const QString &displayName)
+{
+	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	auto *add = main ? main->findChild<QPushButton *>("transitionAdd") : nullptr;
+	if (!add) {
+		QMessageBox::information(this, Tr("MDS.SceneTransitions"), Tr("MDS.TransitionAddUnavailable"));
+		return;
+	}
+	QTimer::singleShot(0, this, [displayName]() {
+		auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+		if (!menu)
+			return;
+		QPointer<QAction> chosen;
+		for (QAction *a : menu->actions()) {
+			if (a->text() == displayName)
+				chosen = a;
+		}
+		menu->close();
+		if (chosen)
+			QTimer::singleShot(0, chosen.data(), [chosen]() {
+				if (chosen)
+					chosen->trigger();
+			});
+	});
+	add->click();
+}
+
+void StudioWindow::RefreshQuickTransitions()
+{
+	if (!quickPanel)
+		return;
+	for (QPushButton *b : quickButtons)
+		b->deleteLater();
+	quickButtons.clear();
+	QLayout *layout = quickPanel->layout();
+	while (QLayoutItem *item = layout->takeAt(0)) {
+		if (item->widget())
+			item->widget()->deleteLater();
+		delete item;
+	}
+
+	const auto &list = Manager::Get().QuickTransitions();
+	for (size_t i = 0; i < list.size(); i++) {
+		OBSSource tr = Manager::FindTransition(list[i].transition);
+		QString text = tr ? QString::fromUtf8(obs_source_get_name(tr)) : Tr("MDS.QuickTransitionMissing");
+		if (tr && !obs_transition_fixed(tr))
+			text += QString(" (%1 ms)").arg(list[i].durationMs);
+		auto *button = new QPushButton(text, quickPanel);
+		button->setEnabled(tr != nullptr);
+		button->setContextMenuPolicy(Qt::CustomContextMenu);
+		const int index = int(i);
+		connect(button, &QPushButton::clicked, this, [index]() {
+			const auto &l = Manager::Get().QuickTransitions();
+			if (size_t(index) >= l.size())
+				return;
+			OBSSource t = Manager::FindTransition(l[size_t(index)].transition);
+			if (t)
+				Manager::Get().Take(obs_transition_fixed(t), t, l[size_t(index)].durationMs);
+		});
+		connect(button, &QPushButton::customContextMenuRequested, this, [this, button, index](const QPoint &p) {
+			ShowQuickTransitionMenu(index, button->mapToGlobal(p));
+		});
+		layout->addWidget(button);
+		quickButtons.push_back(button);
+	}
+	auto *add = new QToolButton(quickPanel);
+	add->setIcon(DockStyle::PlusIcon());
+	add->setToolTip(Tr("MDS.QuickTransitionAdd"));
+	add->setAutoRaise(true);
+	SetIconClass(add, "icon-plus");
+	connect(add, &QToolButton::clicked, this, [this, add]() { AddQuickTransition(add); });
+	layout->addWidget(add);
+	layout->setAlignment(add, Qt::AlignHCenter);
+	UpdateTakeButtons();
+}
+
+/* Menu des transitions d'OBS (et des types pour en créer une). */
+static void FillTransitionChoices(QMenu *menu, const std::function<void(obs_source_t *)> &chosen,
+				  const std::function<void(const QString &)> &create)
+{
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_transitions(&list);
+	for (size_t i = 0; i < list.sources.num; i++) {
+		OBSSource tr = list.sources.array[i];
+		QObject::connect(menu->addAction(QString::fromUtf8(obs_source_get_name(tr))), &QAction::triggered, menu,
+				 [chosen, tr]() { chosen(tr); });
+	}
+	obs_frontend_source_list_free(&list);
+	menu->addSeparator();
+	size_t idx = 0;
+	const char *id = nullptr;
+	while (obs_enum_transition_types(idx++, &id)) {
+		if (!obs_is_source_configurable(id))
+			continue;
+		const QString display = QString::fromUtf8(obs_source_get_display_name(id));
+		QObject::connect(menu->addAction(Tr("MDS.TransitionAddType").arg(display)), &QAction::triggered, menu,
+				 [create, display]() { create(display); });
+	}
+}
+
+void StudioWindow::AddQuickTransition(QWidget *anchor)
+{
+	QMenu menu(this);
+	FillTransitionChoices(
+		&menu,
+		[](obs_source_t *tr) {
+			auto list = Manager::Get().QuickTransitions();
+			Manager::QuickTransition q;
+			q.transition = obs_source_get_uuid(tr);
+			q.durationMs = obs_frontend_get_transition_duration();
+			list.push_back(q);
+			Manager::Get().SetQuickTransitions(list);
+		},
+		[this](const QString &display) {
+			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
+		});
+	menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
+}
+
+void StudioWindow::ShowQuickTransitionMenu(int index, const QPoint &globalPos)
+{
+	if (index < 0 || size_t(index) >= Manager::Get().QuickTransitions().size())
+		return;
+	QMenu menu(this);
+	QMenu *change = menu.addMenu(Tr("MDS.QuickTransitionChange"));
+	FillTransitionChoices(
+		change,
+		[index](obs_source_t *tr) {
+			auto list = Manager::Get().QuickTransitions();
+			if (size_t(index) < list.size())
+				list[size_t(index)].transition = obs_source_get_uuid(tr);
+			Manager::Get().SetQuickTransitions(list);
+		},
+		[this](const QString &display) {
+			QTimer::singleShot(0, this, [this, display]() { CreateObsTransition(display); });
+		});
+	connect(menu.addAction(Tr("MDS.QuickTransitionDuration")), &QAction::triggered, this, [this, index]() {
+		auto list = Manager::Get().QuickTransitions();
+		if (size_t(index) >= list.size())
+			return;
+		bool ok = false;
+		const int value = QInputDialog::getInt(this, Tr("MDS.QuickTransitionDuration"), Tr("MDS.Duration"),
+						       list[size_t(index)].durationMs, 50, 20000, 50, &ok);
+		if (!ok)
+			return;
+		list[size_t(index)].durationMs = value;
+		Manager::Get().SetQuickTransitions(list);
+	});
+	menu.addSeparator();
+	connect(menu.addAction(Tr("MDS.QuickTransitionRemove")), &QAction::triggered, this, [index]() {
+		auto list = Manager::Get().QuickTransitions();
+		if (size_t(index) < list.size())
+			list.erase(list.begin() + index);
+		Manager::Get().SetQuickTransitions(list);
+	});
+	menu.exec(globalPos);
 }
 
 /* ------------------------------------------------------------------ */

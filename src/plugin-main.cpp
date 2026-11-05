@@ -17,7 +17,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "blend-render.hpp"
+#include "cues.hpp"
 #include "manager.hpp"
+#include "remote-control.hpp"
 #include "studio-window.hpp"
 #include "tile-grid.hpp"
 #include "text.hpp"
@@ -167,6 +169,9 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
 		m.OnObsProgramChanged();
 		break;
+	case OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED:
+		m.OnObsPreviewChanged();
+		break;
 	case OBS_FRONTEND_EVENT_TRANSITION_CHANGED:
 	case OBS_FRONTEND_EVENT_TRANSITION_LIST_CHANGED:
 	case OBS_FRONTEND_EVENT_TRANSITION_DURATION_CHANGED:
@@ -261,6 +266,8 @@ void obs_module_post_load(void)
 {
 	/* Réglages (dont la langue du plugin) avant tout texte de l'interface. */
 	Manager::Get();
+	CueEngine::Get();
+	RemoteControl::Register();
 
 	auto *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	studio = new StudioWindow(mainWindow);

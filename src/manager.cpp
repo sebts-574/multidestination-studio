@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "manager.hpp"
+#include "cues.hpp"
 #include "text.hpp"
 
 #include <obs-frontend-api.h>
@@ -287,36 +288,85 @@ void Manager::SetPreviewScene(obs_source_t *mainScene)
 		return;
 	previewScene = mainScene ? OBSGetWeakRef(mainScene) : OBSWeakSource();
 	emit previewChanged();
+
+	/* L'aperçu d'OBS suit (retours « scène en aperçu » de Companion). */
+	if (followObsPreview && mainScene && !syncingPreview && obs_frontend_preview_program_mode_active()) {
+		OBSSourceAutoRelease obsPreview = obs_frontend_get_current_preview_scene();
+		if (obsPreview.Get() != mainScene) {
+			syncingPreview = true;
+			obs_frontend_set_current_preview_scene(mainScene);
+			syncingPreview = false;
+		}
+	}
 }
 
-void Manager::Take(bool cut)
+void Manager::EnableObsStudioMode()
 {
+	syncingPreview = true;
+	obs_frontend_set_preview_program_mode(true);
+	syncingPreview = false;
 	OBSSource preview = PreviewScene();
-	if (!preview)
-		return;
+	if (followObsPreview && preview && obs_frontend_preview_program_mode_active()) {
+		syncingPreview = true;
+		obs_frontend_set_current_preview_scene(preview);
+		syncingPreview = false;
+	}
+}
 
-	OBSSource oldProgram = ProgramScene();
-	OBSSourceAutoRelease templ = obs_frontend_get_current_transition();
-	const int duration = obs_frontend_get_transition_duration();
+void Manager::OnObsPreviewChanged()
+{
+	if (!ready || !followObsPreview || syncingPreview || taking)
+		return;
+	OBSSourceAutoRelease scene = obs_frontend_get_current_preview_scene();
+	if (!scene || obs_weak_source_references_source(previewScene, scene))
+		return;
+	/* Seulement une scène de la liste commune. */
+	for (auto &s : MainScenes()) {
+		if (s.Get() == scene.Get()) {
+			syncingPreview = true;
+			SetPreviewScene(scene);
+			syncingPreview = false;
+			return;
+		}
+	}
+}
+
+void Manager::TakeScene(obs_source_t *mainScene, bool cut, obs_source_t *transition, int durationMs, bool skipMain)
+{
+	if (!mainScene)
+		return;
+	OBSSourceAutoRelease current = obs_frontend_get_current_transition();
+	obs_source_t *templ = transition ? transition : current.Get();
+	const int duration = durationMs >= 0 ? durationMs : obs_frontend_get_transition_duration();
 
 	taking = true;
 	for (auto &d : destinations) {
-		if (d->Locked())
+		if (d->Locked() || (skipMain && d->IsMain()))
 			continue;
-		OBSSource linked = d->LinkedScene(preview);
+		OBSSource linked = d->LinkedScene(mainScene);
 		if (linked)
 			d->Take(linked, cut, templ, duration);
 	}
 	taking = false;
 
-	programScene = OBSGetWeakRef(preview.Get());
+	programScene = OBSGetWeakRef(mainScene);
 	emit programChanged();
+}
+
+void Manager::Take(bool cut, obs_source_t *transition, int durationMs)
+{
+	OBSSource preview = PreviewScene();
+	if (!preview)
+		return;
+	if (takeInterceptor && takeInterceptor(cut))
+		return;
+
+	OBSSource oldProgram = ProgramScene();
+	TakeScene(preview, cut, transition, durationMs);
 
 	/* Comme OBS : l'ancien Program revient en Preview (réglable). */
-	if (swapAfterTake && oldProgram && oldProgram.Get() != preview.Get()) {
-		previewScene = OBSGetWeakRef(oldProgram.Get());
-		emit previewChanged();
-	}
+	if (swapAfterTake && oldProgram && oldProgram.Get() != preview.Get())
+		SetPreviewScene(oldProgram);
 }
 
 void Manager::OnObsProgramChanged()
@@ -324,12 +374,51 @@ void Manager::OnObsProgramChanged()
 	if (!ready)
 		return;
 
-	/* Un changement de scène fait dans OBS n'agit que sur la destination
-	 * par défaut ; on suit seulement le Program pour l'affichage. */
 	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
-	if (current && !taking && !obs_weak_source_references_source(programScene, current))
+	if (current && !taking && !obs_weak_source_references_source(programScene, current)) {
+		/* Changement fait dans OBS (Companion « Set Program Scene »,
+		 * transition du mode Studio, obs-websocket…) : les autres
+		 * destinations suivent si le réglage est actif ; sinon seule la
+		 * destination par défaut change. */
+		bool common = false;
+		for (auto &s : MainScenes())
+			common = common || s.Get() == current.Get();
+		if (followObsProgram && common) {
+			TakeScene(current, false, nullptr, -1, true);
+			return;
+		}
 		programScene = OBSGetWeakRef(current.Get());
+	}
 	emit programChanged();
+}
+
+void Manager::SetQuickTransitions(const std::vector<QuickTransition> &list)
+{
+	quickTransitions = list;
+	emit quickTransitionsChanged();
+}
+
+OBSSource Manager::FindTransition(const std::string &uuidOrName)
+{
+	OBSSource found;
+	if (uuidOrName.empty())
+		return found;
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_transitions(&list);
+	for (size_t i = 0; i < list.sources.num && !found; i++) {
+		obs_source_t *tr = list.sources.array[i];
+		const char *uuid = obs_source_get_uuid(tr);
+		if (uuid && uuidOrName == uuid)
+			found = tr;
+	}
+	for (size_t i = 0; i < list.sources.num && !found; i++) {
+		obs_source_t *tr = list.sources.array[i];
+		const char *n = obs_source_get_name(tr);
+		if (n && uuidOrName == n)
+			found = tr;
+	}
+	obs_frontend_source_list_free(&list);
+	return found;
 }
 
 /* ------------------------------------------------------------------ */
@@ -360,6 +449,16 @@ void Manager::Save(obs_data_t *data) const
 	obs_data_set_string(data, "preview_scene", uuid ? uuid : "");
 	if (sceneTree)
 		obs_data_set_array(data, "scene_tree", sceneTree);
+
+	OBSDataArrayAutoRelease quick = obs_data_array_create();
+	for (const auto &q : quickTransitions) {
+		OBSDataAutoRelease item = obs_data_create();
+		obs_data_set_string(item, "transition", q.transition.c_str());
+		obs_data_set_int(item, "duration", q.durationMs);
+		obs_data_array_push_back(quick, item);
+	}
+	obs_data_set_array(data, "quick_transitions", quick);
+	CueEngine::Get().Save(data);
 }
 
 void Manager::ApplyLoad()
@@ -406,6 +505,17 @@ void Manager::ApplyLoad()
 		sceneTree = tree.Get();
 		OBSSourceAutoRelease preview = obs_get_source_by_uuid(obs_data_get_string(data, "preview_scene"));
 		previewScene = preview ? OBSGetWeakRef(preview.Get()) : OBSWeakSource();
+
+		quickTransitions.clear();
+		OBSDataArrayAutoRelease quick = obs_data_get_array(data, "quick_transitions");
+		for (size_t i = 0; i < obs_data_array_count(quick); i++) {
+			OBSDataAutoRelease item = obs_data_array_item(quick, i);
+			QuickTransition q;
+			q.transition = obs_data_get_string(item, "transition");
+			q.durationMs = int(obs_data_get_int(item, "duration"));
+			quickTransitions.push_back(q);
+		}
+		CueEngine::Get().Load(data);
 	}
 
 	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
@@ -414,6 +524,7 @@ void Manager::ApplyLoad()
 	Sync();
 	obs_log(LOG_INFO, "%zu destination(s) chargée(s)", destinations.size());
 	emit loaded();
+	emit quickTransitionsChanged();
 	emit destinationsChanged();
 	emit previewChanged();
 	emit programChanged();
@@ -435,6 +546,8 @@ void Manager::Reset()
 	previewScene = nullptr;
 	programScene = nullptr;
 	sceneTree = nullptr;
+	quickTransitions.clear();
+	CueEngine::Get().Reset();
 }
 
 /* ------------------------------------------------------------------ */
@@ -461,6 +574,12 @@ void Manager::LoadSettings()
 	obs_log(LOG_INFO, "langue d'OBS : %s, langue du plugin : %s", obs_get_locale(),
 		language.empty() ? "celle d'OBS" : language.c_str());
 	showAllDestinations = config_get_bool(config, SETTINGS_SECTION, "ShowAllDestinations");
+	config_set_default_bool(config, SETTINGS_SECTION, "CuesEnabled", false);
+	config_set_default_bool(config, SETTINGS_SECTION, "FollowObsPreview", true);
+	config_set_default_bool(config, SETTINGS_SECTION, "FollowObsProgram", true);
+	cuesEnabled = config_get_bool(config, SETTINGS_SECTION, "CuesEnabled");
+	followObsPreview = config_get_bool(config, SETTINGS_SECTION, "FollowObsPreview");
+	followObsProgram = config_get_bool(config, SETTINGS_SECTION, "FollowObsProgram");
 }
 
 void Manager::SaveSettings() const
@@ -473,6 +592,9 @@ void Manager::SaveSettings() const
 	config_set_string(config, SETTINGS_SECTION, "Language", language.c_str());
 	config_set_bool(config, SETTINGS_SECTION, "LaunchOnStartup", launchOnStartup);
 	config_set_bool(config, SETTINGS_SECTION, "OpenOutputsOnStartup", openOutputsOnStartup);
+	config_set_bool(config, SETTINGS_SECTION, "CuesEnabled", cuesEnabled);
+	config_set_bool(config, SETTINGS_SECTION, "FollowObsPreview", followObsPreview);
+	config_set_bool(config, SETTINGS_SECTION, "FollowObsProgram", followObsProgram);
 	config_save_safe(config, "tmp", nullptr);
 }
 
@@ -507,6 +629,33 @@ void Manager::SetLaunchOnStartup(bool value)
 	if (launchOnStartup == value)
 		return;
 	launchOnStartup = value;
+	SaveSettings();
+}
+
+void Manager::SetCuesEnabled(bool value)
+{
+	if (cuesEnabled == value)
+		return;
+	cuesEnabled = value;
+	if (!value)
+		CueEngine::Get().Stop();
+	SaveSettings();
+	emit settingsChanged();
+}
+
+void Manager::SetFollowObsPreview(bool value)
+{
+	if (followObsPreview == value)
+		return;
+	followObsPreview = value;
+	SaveSettings();
+}
+
+void Manager::SetFollowObsProgram(bool value)
+{
+	if (followObsProgram == value)
+		return;
+	followObsProgram = value;
 	SaveSettings();
 }
 

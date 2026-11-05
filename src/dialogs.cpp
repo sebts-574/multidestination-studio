@@ -362,26 +362,36 @@ protected:
 	}
 };
 
-void EditStartupSetting(QWidget *parent)
+void EditSwitchSetting(QWidget *parent, const QString &title, const QString &note,
+		       const std::vector<SwitchOption> &options)
 {
 	QDialog dialog(parent);
-	dialog.setWindowTitle(Tr("MDS.SettingStartup"));
-	dialog.setMinimumWidth(480);
+	dialog.setWindowTitle(title);
+	dialog.setMinimumWidth(520);
 	auto *layout = new QVBoxLayout(&dialog);
+	if (!note.isEmpty()) {
+		auto *label = new QLabel(note, &dialog);
+		label->setWordWrap(true);
+		label->setTextFormat(Qt::RichText);
+		label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+		label->setContentsMargins(0, 0, 0, 8);
+		layout->addWidget(label);
+	}
 
 	/* Une ligne par réglage : libellé, état, interrupteur ; enregistré dès
 	 * qu'on clique. */
-	auto addSwitch = [&](const QString &text, bool value, std::function<void(bool)> apply) {
+	for (const SwitchOption &option : options) {
 		auto *row = new QHBoxLayout();
-		auto *label = new QLabel(text, &dialog);
+		auto *label = new QLabel(option.text, &dialog);
 		label->setWordWrap(true);
 		auto *toggle = new ToggleSwitch(&dialog);
-		toggle->setChecked(value);
+		toggle->setChecked(option.value);
 		auto *state = new QLabel(&dialog);
 		auto refresh = [=]() {
 			state->setText(toggle->isChecked() ? Tr("MDS.Enabled") : Tr("MDS.Disabled"));
 		};
 		refresh();
+		const auto apply = option.apply;
 		QObject::connect(toggle, &QAbstractButton::toggled, &dialog, [=](bool on) {
 			apply(on);
 			refresh();
@@ -390,11 +400,7 @@ void EditStartupSetting(QWidget *parent)
 		row->addWidget(state);
 		row->addWidget(toggle);
 		layout->addLayout(row);
-	};
-	addSwitch(Tr("MDS.SettingStartupLaunch"), Manager::Get().LaunchOnStartup(),
-		  [](bool on) { Manager::Get().SetLaunchOnStartup(on); });
-	addSwitch(Tr("MDS.SettingStartupOutputs"), Manager::Get().OpenOutputsOnStartup(),
-		  [](bool on) { Manager::Get().SetOpenOutputsOnStartup(on); });
+	}
 
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
 	buttons->button(QDialogButtonBox::Close)->setText(Tr("MDS.Close"));
@@ -402,6 +408,18 @@ void EditStartupSetting(QWidget *parent)
 	layout->addSpacing(8);
 	layout->addWidget(buttons);
 	dialog.exec();
+}
+
+void EditStartupSetting(QWidget *parent)
+{
+	EditSwitchSetting(parent, Tr("MDS.SettingStartup"), QString(),
+			  {{Tr("MDS.SettingStartupLaunch"), Manager::Get().LaunchOnStartup(),
+			    [](bool on) {
+				    Manager::Get().SetLaunchOnStartup(on);
+			    }},
+			   {Tr("MDS.SettingStartupOutputs"), Manager::Get().OpenOutputsOnStartup(), [](bool on) {
+				    Manager::Get().SetOpenOutputsOnStartup(on);
+			    }}});
 }
 
 bool EditLanguageSetting(QWidget *parent, std::string &locale)

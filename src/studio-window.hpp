@@ -29,6 +29,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <vector>
 
 class AudioMixer;
+class CuesPanel;
+class QDockWidget;
 class MediaControls;
 class Destination;
 class ProjectorWindow;
@@ -195,6 +197,20 @@ private:
 	bool scenePreviewPending = false;
 	void UpdateTakeButtons();
 	void ApplySceneSelection();
+	/* Transitions rapides (barre entre Aperçu et Programme). */
+	QWidget *quickPanel = nullptr;
+	std::vector<QPushButton *> quickButtons;
+	void RefreshQuickTransitions();
+	void ShowQuickTransitionMenu(int index, const QPoint &globalPos);
+	void AddQuickTransition(QWidget *anchor);
+	/* Ajoute une transition d'OBS d'un type donné (fenêtre d'OBS). */
+	void CreateObsTransition(const QString &displayName);
+	/* Fonction Cues : dock affiché ou non. */
+	CuesPanel *cuesPanel = nullptr;
+	QDockWidget *cuesDock = nullptr;
+	void ApplyCuesFeature();
+	void EditCuesSetting();
+	void EditCompanionSetting();
 	AudioMixer *mixer = nullptr;
 	MediaControls *mediaControls = nullptr;
 	QPushButton *modifyPgmButton = nullptr;

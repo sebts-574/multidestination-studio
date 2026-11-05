@@ -20,8 +20,12 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <obs.h>
 
+#include <QString>
+
+#include <functional>
 #include <set>
 #include <string>
+#include <vector>
 
 class Destination;
 class QComboBox;
@@ -61,6 +65,16 @@ bool EditDisplaySetting(QWidget *parent, bool &showAll);
 /* Réglage de démarrage : interrupteur « Launch Multidestination Studio on
  * startup », appliqué immédiatement. */
 void EditStartupSetting(QWidget *parent);
+
+/* Fenêtre de réglage à interrupteurs (appliqués dès le clic), avec une
+ * note explicative au-dessus. */
+struct SwitchOption {
+	QString text;
+	bool value = false;
+	std::function<void(bool)> apply;
+};
+void EditSwitchSetting(QWidget *parent, const QString &title, const QString &note,
+		       const std::vector<SwitchOption> &options);
 
 /* Langue du plugin : "" = celle d'OBS, sinon un code de langue. */
 bool EditLanguageSetting(QWidget *parent, std::string &locale);
