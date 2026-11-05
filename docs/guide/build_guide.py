@@ -1,7 +1,7 @@
-"""Multidestination Studio 1.0.3 - User Guide (PDF).
+"""Multidestination Studio 1.1.0 - User Guide (PDF).
 
-Screenshots: put PNG files named shotNN.png in the folder given as argv[2];
-missing ones are drawn as labelled placeholders.
+Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
+missing ones are drawn as labelled placeholders (with their file name).
 """
 import os
 import sys
@@ -127,11 +127,12 @@ class Placeholder(Flowable):
         c.drawCentredString(self.w / 2, self.h / 2 - 10, self.text)
 
 
-def shot(text, height=80):
-    """Screenshot with caption; placeholder if the PNG is missing."""
+def shot(text, height=80, file=None):
+    """Screenshot with caption; placeholder (with the expected file name) if the PNG is missing."""
     shot_counter[0] += 1
     n = shot_counter[0]
-    path = os.path.join(SHOTS, f"shot{n:02d}.png")
+    name = file or f"shot{n:02d}.png"
+    path = os.path.join(SHOTS, name)
     w = 165 * mm
     if os.path.exists(path):
         img = Image(path)
@@ -143,7 +144,7 @@ def shot(text, height=80):
         img.hAlign = "CENTER"
         flow = img
     else:
-        flow = Placeholder(n, "To be provided", w, height * mm)
+        flow = Placeholder(n, f"To be provided: {name}", w, height * mm)
     return [KeepTogether([flow, Paragraph(f"<b>Figure {n}.</b> {text}", caption)])]
 
 
@@ -216,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.0.3 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.0 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -245,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.0.3")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.0")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -255,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.0.3 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.0 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -277,19 +278,22 @@ def build():
             "different resolutions, switched at the same moment.")]
     s += [P("<b>Multidestination Studio</b> is a free plugin for OBS Studio that does exactly this. It adds "
             "independent <b>destinations</b> to OBS, each with its own canvas, resolution, Preview and "
-            "Program, and lets you run all of them from one full-screen studio view with a single "
-            "<b>Transition</b> or <b>Cut</b>. You keep everything you already know from OBS: sources, filters, "
-            "transitions, audio, streaming and recording.")]
+            "Program, and lets you run all of them from one studio window with a single <b>Transition</b>. "
+            "You keep everything you already know from OBS: sources, filters, transitions, audio, streaming "
+            "and recording.")]
     s += [P("What it gives you", h2)]
     s += bullets([
         "<b>Several outputs, one operator.</b> Every destination has its own picture, but one scene list and one "
-        "TAKE drive them all.",
+        "Transition drive them all.",
         "<b>A different layout per screen.</b> The same scene can show a full-screen camera on the stream, a wide "
         "graphic on the LED wall and nothing at all on the projectors.",
         "<b>Projector blending built in.</b> Spread one destination across several projectors with soft-edge "
         "blending, gamma, black level and keystone correction.",
         "<b>A safe live output.</b> Changes you prepare in Preview never touch what is on air, unless you decide "
         "to edit the Program directly.",
+        "<b>Cues</b> (optional): play several scenes one after the other, with waits and per-scene transitions.",
+        "<b>Companion and Stream Deck</b>: a ready-made Companion module with buttons for scenes, transitions, "
+        "settings and cues.",
     ])
     s += [P("Requirements", h2)]
     s += table([
@@ -298,8 +302,10 @@ def build():
         ["Systems", "Windows 10/11 (64-bit), macOS (Apple Silicon and Intel), Ubuntu 24.04 (x86_64)"],
         ["Hardware", "One graphics card able to render every destination at your OBS frame rate. Each extra "
                      "screen used for output must be connected to the computer."],
+        ["Companion (optional)", "A recent Bitfocus Companion, to control the studio from a Stream Deck "
+                                 "(chapter 12)."],
         ["Languages", "English, French, Norwegian (Bokmål)"],
-    ], [35, 130])
+    ], [38, 127])
 
     # 2 -------------------------------------------------------------
     s += [PageBreak(), P("2. Key concepts", h1)]
@@ -311,15 +317,19 @@ def build():
                         "the one OBS streams and records."],
         ["Scene", "Scenes are shared. A scene lists the destinations it <b>covers</b>; each covered destination "
                   "has its own version of the scene, with its own sources and layout."],
+        ["Folder", "Scenes can be arranged in folders. A folder only organises the list: it is never taken "
+                   "live."],
         ["Preview / Program", "As in the OBS Studio Mode: Preview shows what is coming next, Program shows what "
                               "is live. Each destination has both."],
-        ["TAKE", "<b>Transition</b> or <b>Cut</b> sends the Preview scene to Program on every destination it "
-                 "covers, at the same moment, using the OBS transition."],
-        ["Lock", "A locked destination ignores Transition and Cut and keeps its current Program."],
+        ["Transition", "Sends the Preview scene to Program on every destination it covers, at the same moment, "
+                       "with the OBS transition. <b>Quick transitions</b> and the <b>T-bar</b> do the same with "
+                       "another transition or by hand."],
+        ["Lock", "A locked destination ignores transitions and keeps its current Program."],
         ["Modify PGM", "Program shows a copy of the scene taken live. Modify PGM lets you edit that live "
                        "picture directly; the changes are also kept in the scene."],
         ["Output blending", "A destination split across several outputs (usually projectors) whose overlaps are "
                             "softly blended to look like one seamless image."],
+        ["Cue", "A list of scenes taken live one after the other, each with its own waits and transition."],
     ], [35, 130])
     s += callout("A destination that a scene does not cover is not affected when that scene is taken: it simply "
                  "keeps showing its current Program. This lets you change one screen without touching the "
@@ -331,44 +341,47 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.0.3-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.0-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.0.3-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.0-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
+        ["Companion", "obs-studio-4.0.0-multidestination.1.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
     s += [P("Start OBS. A <b>Multidestination Studio</b> button appears in the OBS <b>Controls</b> dock, next to "
             "<b>Studio Mode</b>. The same command is in the <b>Tools</b> menu, and you can assign a hotkey to it "
             "in OBS Settings → Hotkeys.")]
-    s += shot("The Multidestination Studio button in the OBS Controls dock.", 55)
-    s += [P("Multidestination Studio opens full screen. When it opens, OBS Studio Mode is switched on (and "
-            "switched off again when you leave, if it was off), so that the default destination also has a "
-            "real Preview and Program. To go back to the normal OBS window, use <b>File → Exit Multidestination "
-            "Studio</b>, the <b>Quit</b> button in the top-right corner, or the <b>Exit</b> button in the "
-            "Controls dock.")]
+    s += shot("The Multidestination Studio button in the OBS Controls dock.", 55, "shot01.png")
+    s += [P("Multidestination Studio opens full screen on Windows and Linux, and in a large window on macOS. "
+            "When it opens, OBS Studio Mode is switched on (and switched off again when you leave, if it was "
+            "off), so that the default destination also has a real Preview and Program.")]
+    s += [P("The studio is a window of its own, like an OBS projector: it has its own entry in the taskbar "
+            "(the Dock and Mission Control on macOS). After minimizing it, click that entry to come back. To "
+            "leave the studio, use <b>File → Exit Multidestination Studio</b>, the <b>Quit</b> button in the "
+            "top-right corner (full screen), the <b>Exit</b> button in the Controls dock, or <b>Esc</b>.")]
     s += callout("To have the studio open automatically every time OBS starts, turn on <b>Configuration "
                  "Settings → Startup Settings → Launch Multidestination Studio on startup</b>.")
 
     # 4 -------------------------------------------------------------
     s += [PageBreak(), P("4. A tour of the studio", h1)]
-    s += shot("The Multidestination Studio window with three destinations.", 95)
+    s += shot("The Multidestination Studio window with three destinations.", 95, "studio-window.png")
     s += [P("Menus", h2)]
     s += table([
         ["Menu", "Contents"],
         ["File", "Exit Multidestination Studio."],
-        ["Edit", "Undo, copy and paste, remove, transform, order, properties and filters for the selected "
-                 "source (see chapter 7)."],
+        ["Edit", "Undo, copy and paste, group, remove, transform, order, properties and filters for the selected "
+                 "source (chapter 7)."],
         ["Destinations", "One submenu per destination, Manage destinations, Output blending, New destination "
-                         "(chapters 5 and 9)."],
+                         "(chapters 5 and 10)."],
         ["Docks", "Show or hide each dock, Reset docks, Fullscreen (F11)."],
-        ["Configuration Settings", "After a transition, Destinations shown, Startup Settings, Language "
-                                   "(chapter 11)."],
+        ["Configuration Settings", "After a transition, Destinations shown, Cues, Startup Settings, Language "
+                                   "(chapter 13)."],
     ], [42, 123])
     s += [P("Next to the menus, an information hint reminds you that <b>F11</b> switches full screen on or "
             "off. In full screen, moving the mouse to the top-right corner reveals <b>Minimize</b>, <b>Exit "
             "fullscreen</b> and <b>Quit</b>; they disappear when the mouse moves away.")]
-    s += shot("Top-right window controls in full screen, and the F11 hint next to the menus.", 40)
+    s += shot("Top-right window controls in full screen, and the F11 hint next to the menus.", 40, "shot03.png")
     s += [P("Preview and Program", h2)]
     s += [P("The <b>Preview</b> column (left) and the <b>Program</b> column (right) show one tile per "
             "destination, stacked and scaled to fit the window. Each tile has a header with the destination "
@@ -376,25 +389,28 @@ def build():
     s += bullets([
         "<b>Enlarge</b> shows only this destination, much larger, for precise placement. <b>Show all</b> brings "
         "the other destinations back.",
-        "<b>Lock</b> (Preview only) keeps this destination out of Transition and Cut.",
+        "<b>Lock</b> (Preview only) keeps this destination out of transitions.",
     ])
     s += [P("When space is short, the buttons shrink to their icons and the name text scales down so it always "
-            "remains complete. Between the columns are <b>Modify PGM</b>, then <b>Transition</b> and "
-            "<b>Cut</b>.")]
-    s += shot("A tile header: destination name, Enlarge and Lock (unlocked and locked).", 35)
+            "remains complete. Between the columns are <b>Modify PGM</b>, then <b>Transition</b> with its "
+            "<b>⋮</b> menu, the <b>Quick transitions</b> and the <b>T-bar</b> (chapter 8).")]
+    s += shot("A tile header: destination name, Enlarge and Lock (unlocked and locked).", 35, "shot04.png")
     s += [P("Docks", h2)]
-    s += [P("By default the six docks sit side by side at the bottom of the window: <b>Scenes</b>, "
-            "<b>Sources</b>, <b>Media controls</b>, <b>Audio mixer</b>, <b>Scene transitions</b> and "
-            "<b>Controls</b>. They can be moved, resized, floated or closed like OBS docks; the arrangement is "
-            "saved with your scene collection. <b>Docks → Reset docks</b> restores the default layout.")]
+    s += [P("By default the docks sit side by side at the bottom of the window: <b>Scenes</b>, <b>Sources</b>, "
+            "<b>Cues</b> (when the Cues feature is on), <b>Media controls</b>, <b>Audio mixer</b>, <b>Scene "
+            "transitions</b> and <b>Controls</b>. They can be moved, resized, floated or closed like OBS docks; "
+            "the arrangement is saved with your scene collection. <b>Docks → Reset docks</b> restores the default "
+            "layout. The Scenes, Sources and Cues docks look and behave like those of OBS, with the same toolbar "
+            "icons.")]
     s += table([
         ["Dock", "Role"],
-        ["Scenes", "The shared scene list: add, remove, rename, choose destinations, reorder."],
-        ["Sources", "Sources of the active tile (the destination you clicked last): add, remove, show or hide, "
-                    "reorder, properties."],
+        ["Scenes", "The shared scene list, with folders: add, remove, settings, filters, new folder, reorder."],
+        ["Sources", "Sources of the active tile (the destination you clicked last), with groups: add, remove, "
+                    "properties, new folder, reorder; eye and lock on each source."],
+        ["Cues", "Optional: cues and their scenes, with live status (chapter 9)."],
         ["Media controls", "Play / pause, restart and stop the selected media source."],
         ["Audio mixer", "Meters, faders, mute and monitoring for the active audio sources."],
-        ["Scene transitions", "The OBS transition and its duration, shared by every destination."],
+        ["Scene transitions", "Choose the OBS transition, its duration and properties, or remove it."],
         ["Controls", "Start or stop streaming and recording, exit the studio."],
     ], [35, 130])
 
@@ -409,25 +425,29 @@ def build():
         "have. Leave it unticked to add it to scenes one by one.",
         "Click <b>Create</b>. The destination appears in Preview and Program for every scene that covers it.",
     ])
-    s += [P("When <b>All destinations, all the time</b> is on (chapter 11), a note under the checkbox reminds you "
+    s += [P("When <b>All destinations, all the time</b> is on (chapter 13), a note under the checkbox reminds you "
             "that the new destination will be visible under every scene; where it was not added, it shows "
             "<b>Not in this scene</b> and nothing is placed on it.")]
-    s += shot("The New destination dialog, with the note shown when All destinations, all the time is on.", 60)
+    s += shot("The New destination dialog, with the note shown when All destinations, all the time is on.", 60,
+              "shot05.png")
     s += [P("The Destinations menu", h2)]
     s += [P("Each destination has its own submenu:")]
     s += table([
         ["Command", "What it does"],
         ["Settings…", "Rename, change the resolution or the output screen."],
-        ["Output blending…", "Split this destination across several projectors (chapter 9)."],
+        ["Output blending…", "Split this destination across several projectors (chapter 10)."],
         ["Open fullscreen on …", "Shows the Program of the destination full screen on its output screen. For a "
                                  "blended destination: one full-screen window per projector."],
         ["Open windowed", "Shows the Program in a normal window, for checking or for capture."],
         ["Close projection", "Closes the full-screen or windowed output."],
         ["Delete", "Deletes the destination and its layouts in every scene, after confirmation."],
     ], [42, 123])
-    s += [P("In a projection window, <b>Esc</b> closes the projection and a double-click switches between full "
-            "screen and window. The mouse pointer is hidden on output screens.")]
-    s += shot("The Destinations menu with a destination submenu open.", 60)
+    s += [P("A full-screen output stays on top of its screen, whatever you do in OBS or in the studio, and does "
+            "not take the focus. If its screen is disconnected, the output hides and comes back by itself when "
+            "the screen returns. Click an output to give it the focus: <b>Esc</b> then closes it, and a "
+            "double-click switches between full screen and window. The mouse pointer is hidden on output "
+            "screens.")]
+    s += shot("The Destinations menu with a destination submenu open.", 60, "shot06.png")
     s += [P("Managing all destinations", h2)]
     s += [P("<b>Destinations → Manage destinations…</b> shows every destination in one window. Select a "
             "destination on the left to change its name, resolution, output screen and lock, and to tick or untick "
@@ -435,7 +455,7 @@ def build():
             "changes; unticking a scene asks for confirmation, because the layout of that scene on this destination "
             "is deleted. The same window gives direct access to Output blending, fullscreen projection, Delete "
             "(Deactivate or Activate for the default destination) and New destination.")]
-    s += shot("The Manage destinations window.", 80)
+    s += shot("The Manage destinations window.", 80, "shot07.png")
     s += [P("The default destination", h2)]
     s += [P("The default destination is the OBS main canvas: its resolution is set in OBS Settings → Video, and "
             "it is what OBS streams and records. If you do not need it, choose <b>Deactivate &amp; hide</b> in its "
@@ -450,34 +470,56 @@ def build():
     s += [P("Click <b>+</b> in the Scenes dock. Give the scene a name and tick the destinations under <b>Show "
             "this scene on</b> (all are ticked by default). Scenes created directly in OBS, by a Stream Deck or "
             "through obs-websocket open the same dialog.")]
-    s += shot("The scene dialog with its list of destinations.", 60)
+    s += shot("The scene dialog with its list of destinations.", 60, "shot08.png")
     s += [P("Changing which destinations a scene covers", h2)]
     s += [P("Double-click a scene, or use the gear button, to open the same dialog. Unticking a destination "
             "deletes the layout of that scene on that destination, so you are asked to confirm.")]
-    s += [P("Organising scenes", h2)]
+    s += [P("Selecting and organising", h2)]
     s += bullets([
-        "<b>Order</b>: drag a selected scene up or down, use the ↑ and ↓ buttons, or right-click for Move up, "
-        "Move down, Move to top and Move to bottom. The order is shared with the OBS scene list.",
-        "<b>Multiple selection</b>: click and drag across several scenes, or use Shift and Ctrl.",
-        "<b>Remove</b>: press <b>Delete</b> or use the <b>−</b> button; a confirmation is always shown.",
+        "<b>Select</b>: click a scene. Ctrl + click (Cmd + click on macOS) adds or removes a scene from the "
+        "selection; Shift + click selects everything between two scenes; dragging from an empty area of the "
+        "list selects several scenes.",
+        "<b>Move</b>: press on a scene and drag it, use the ↑ and ↓ buttons, or right-click for Move up, Move "
+        "down, Move to top and Move to bottom. The order is shared with the OBS scene list.",
+        "<b>Rename</b>: F2 (Enter on macOS), or right-click → Rename.",
+        "<b>Filters</b>: the filter button opens the OBS filters of the selected scene.",
+        "<b>Remove</b>: press <b>Delete</b> or use the bin button; a confirmation is always shown.",
     ])
+    s += [P("Folders", h2)]
+    s += [P("Folders keep long scene lists tidy. The folder button (or right-click → <b>New folder</b> / "
+            "<b>Group into a folder</b>) creates a folder; the selected scenes, and the scenes of selected "
+            "folders, go into it. Drag scenes into and out of folders; the arrow at the start of a folder opens "
+            "or closes it. <b>Remove folder</b> keeps its scenes. Folders only organise the list: when a folder "
+            "is selected, <b>Transition</b> and the quick transitions are disabled and a short note explains why.")]
+    s += shot("The Scenes dock with a folder open.", 55, "scenes-dock.png")
     s += [P("When a scene does not cover a destination", h2)]
     s += [P("By default every destination stays visible. When the selected scene does not cover a destination, "
             "its Preview tile is hatched, framed in red and marked <b>Not in this scene</b>; its Program keeps "
             "showing what is live. You can instead show only the destinations of the selected scene "
-            "(chapter 11).")]
-    s += shot("A destination that the selected scene does not cover.", 55)
+            "(chapter 13).")]
+    s += shot("A destination that the selected scene does not cover.", 55, "shot09.png")
 
     # 7 -------------------------------------------------------------
     s += [PageBreak(), P("7. Sources and editing", h1)]
     s += [P("Click a Preview tile to make it the <b>active tile</b>: the Sources dock then lists the sources of "
-            "that destination for the selected scene, and a discreet green frame marks the tile.")]
+            "that destination for the selected scene, and a discreet green frame marks the tile. Each source shows "
+            "the icon of its type, as in OBS.")]
     s += [P("Adding sources", h2)]
     s += bullets([
         "<b>+</b> in the Sources dock lists every OBS source type, plus existing sources and other scenes.",
         "Drag image or video files from your computer onto a destination tile. They are added at their "
         "original size, centred; a new video shows its first frame without playing.",
     ])
+    s += [P("Visibility, lock and folders", h2)]
+    s += bullets([
+        "The <b>eye</b> shows or hides a source; the <b>lock</b> stops it from being moved or resized with the "
+        "mouse.",
+        "The <b>folder</b> button creates a folder (an OBS group) with the selected sources in it, ready to be "
+        "renamed. <b>Edit → Group selected sources</b> (Ctrl+G) and <b>Ungroup</b> (Ctrl+Shift+G) do the same "
+        "from the menu.",
+        "Drag sources into and out of groups. Selecting a source inside a group edits that source.",
+    ])
+    s += shot("The Sources dock with a group, the eye and the lock.", 50, "sources-dock.png")
     s += [P("Editing with the mouse", h2)]
     s += table([
         ["Action", "How"],
@@ -485,20 +527,22 @@ def build():
         ["Resize", "Drag a corner or edge handle; the aspect ratio is kept. Hold Shift to resize freely."],
         ["Crop", "Hold Alt and drag a handle."],
         ["Nudge", "Arrow keys move the selected source by one pixel."],
-        ["Select", "Click a source in the tile or in the Sources dock. Several sources can be selected in the "
-                   "dock by click-and-drag, Shift or Ctrl."],
+        ["Select", "Click a source in the tile or in the Sources dock. In the dock, Ctrl + click and Shift + "
+                   "click select several sources."],
         ["Reorder", "Drag sources in the Sources dock, or use ↑ / ↓ and the Edit → Order commands."],
-        ["Show / hide", "Tick or untick a source in the Sources dock."],
+        ["Rename", "F2 (Enter on macOS), or right-click → Rename."],
     ], [30, 135])
     s += [P("Selected sources have a green outline with handles; a source that goes beyond the canvas is "
             "outlined in orange. Clicking elsewhere in the window clears the outlines. A video that is not "
             "playing keeps a frame at its real size and can be edited like any other source.")]
-    s += shot("Editing a source in Preview: selection handles and centre guides.", 75)
+    s += shot("Editing a source in Preview: selection handles and centre guides.", 75, "shot10.png")
     s += [P("Edit menu and shortcuts", h2)]
     s += table([
         ["Command", "Shortcut"],
         ["Undo", "Ctrl+Z"],
-        ["Copy / Paste reference", "Ctrl+C / Ctrl+V"],
+        ["Copy / Paste (reference)", "Ctrl+C / Ctrl+V"],
+        ["Paste (duplicate): an independent copy, with its filters", "Ctrl+Alt+V"],
+        ["Group selected sources / Ungroup", "Ctrl+G / Ctrl+Shift+G"],
         ["Remove (with confirmation)", "Delete or Backspace"],
         ["Copy / Paste transform", "Ctrl+Shift+C / Ctrl+Shift+V"],
         ["Reset transform", "Ctrl+R"],
@@ -511,29 +555,90 @@ def build():
 
     # 8 -------------------------------------------------------------
     s += [PageBreak(), P("8. Going live", h1)]
-    s += [P("Transition and Cut", h2)]
+    s += [P("Transition", h2)]
     s += [P("Select a scene: it appears in Preview on every destination it covers. Click <b>Transition</b> to "
-            "send it to Program with the OBS transition and duration chosen in the Scene transitions dock, or "
-            "<b>Cut</b> to switch instantly. All destinations switch at the same moment.")]
+            "send it to Program with the transition and duration chosen in the Scene transitions dock. All "
+            "destinations switch at the same moment.")]
     s += bullets([
         "A <b>locked</b> destination keeps its Program.",
         "A destination the scene does not cover keeps its Program.",
-        "After the transition, the previous Program returns to Preview, as in OBS Studio Mode. You can choose to "
-        "keep the scene you just took in Preview instead (chapter 11).",
+        "After the transition, the previous Program returns to Preview, as in OBS Studio Mode. The <b>⋮</b> "
+        "menu next to Transition switches this on or off, and switches between all destinations and only "
+        "those of the selected scene (the same settings as chapter 13).",
         "Hotkeys for <b>Transition</b>, <b>Cut</b> and opening the studio can be set in OBS Settings → Hotkeys "
         "(they start with \"Multidestination Studio\").",
     ])
     s += [P("Switching scenes in the normal OBS window only changes the default destination; the other "
-            "destinations are driven from Multidestination Studio.")]
+            "destinations are driven from Multidestination Studio (or from Companion, chapter 12).")]
+    s += [P("Quick transitions", h2)]
+    s += [P("Quick transitions take the Preview to Program with a given transition and duration, without "
+            "changing the transition of the Scene transitions dock. The list starts empty.")]
+    s += bullets([
+        "<b>Add</b>: click <b>+</b> next to <b>Quick transitions</b>, set the duration at the bottom of the "
+        "menu, then choose a transition type (Cut, Fade, Swipe, Slide, Stinger, Fade to Color, Luma Wipe, "
+        "Move). Cut and Fade use the OBS built-in transitions; the other types open the OBS name and "
+        "properties windows. The new quick transition is added under the others.",
+        "<b>Use</b>: click the quick transition.",
+        "<b>Edit or remove</b>: click its arrow for <b>Properties…</b>, the duration, or <b>Remove</b>.",
+    ])
+    s += shot("Transition and its ⋮ menu, quick transitions with the + menu open, and the T-bar.", 60,
+              "quick-transitions.png")
+    s += [P("T-bar", h2)]
+    s += [P("The T-bar under the quick transitions makes a manual transition on every destination. Drag its "
+            "handle to the end to finish the transition, or back to the start to cancel it; released in "
+            "between, the transition waits there. As in OBS, Cut and Stinger are replaced by a fade for the "
+            "T-bar.")]
     s += [P("Editing what is live: Modify PGM", h2)]
     s += [P("What is on air is a copy of the scene, so changes you make in Preview never reach the live output "
             "by accident. When you do need to fix something live, click <b>Modify PGM</b>: the button turns red "
             "and the Program tiles become editable with the same tools as Preview. Your changes are applied live "
             "and also saved into the scene. Click the button again to protect the Program.")]
-    s += shot("Modify PGM switched on: the button is red and the Program can be edited.", 70)
+    s += shot("Modify PGM switched on: the button is red and the Program can be edited.", 70, "modify-pgm.png")
 
     # 9 -------------------------------------------------------------
-    s += [PageBreak(), P("9. Output blending", h1)]
+    s += [PageBreak(), P("9. Cues", h1)]
+    s += [P("A cue plays several scenes one after the other, like a cue list in show control software: for "
+            "example a countdown video, then the opening graphic, then the camera. The feature is optional and "
+            "off by default: turn it on with <b>Configuration Settings → Cues… → Activate Cues</b>. The Cues "
+            "dock then appears between Sources and Media controls.")]
+    s += shot("The Cues settings dialog.", 35, "cues-setting.png")
+    s += [P("Creating a cue", h2)]
+    s += steps([
+        "Optionally select, in the Scenes dock, the scenes the cue should start with.",
+        "Click <b>+</b> in the Cues dock. Give the cue a name.",
+        "For each scene, from top to bottom, set the columns described below. <b>Add scene</b>, <b>Remove "
+        "scene</b>, <b>Move up</b> and <b>Move down</b> edit the list.",
+        "Click <b>Save</b>.",
+    ])
+    s += table([
+        ["Column", "Meaning"],
+        ["Scene", "The scene taken live at this step."],
+        ["Pre-wait", "Delay before the scene goes live."],
+        ["Transition", "<b>Default</b> (the transition of the Scene transitions dock) or any OBS transition."],
+        ["Duration", "Follows the transition, as in the OBS dock: with Default, the default duration (not "
+                     "editable); with Cut, greyed; with other transitions, editable (300 ms proposed)."],
+        ["Next at media end", "The next scene starts when the video or audio of this scene ends, instead of after "
+                              "the post-wait."],
+        ["Post-wait", "Delay after the scene starts, before the next scene. It always lasts at least as long as "
+                      "the transition."],
+    ], [38, 127])
+    s += shot("The cue editor.", 70, "cue-editor.png")
+    s += [P("Running a cue", h2)]
+    s += bullets([
+        "Click a cue: its first scene appears in Preview. Press <b>Transition</b> (or Cut) to run it; the scenes "
+        "then go live one after the other.",
+        "The <b>Run</b> button runs the selected cue directly; <b>Stop</b> stops the running cue.",
+        "The running cue opens and its current scene is marked ▶, with its status: the pre-wait or post-wait "
+        "countdown, or the media time (0:12 / 0:45).",
+        "Choosing another scene in the Scenes dock leaves the cue. Pressing Transition while a cue runs stops it "
+        "and takes the Preview as usual.",
+    ])
+    s += shot("The Cues dock with a cue running.", 50, "cues-dock.png")
+    s += [P("Cues are saved with the scene collection. Double-click a cue to edit it; drag cues to reorder "
+            "them.")]
+
+    # 10 ------------------------------------------------------------
+    s += [PageBreak(), P("10. Output blending", h1)]
     s += [P("Output blending spreads one destination across several outputs, typically two or more projectors "
             "whose images overlap on a wide screen. In the overlap, each projector fades out softly so the "
             "audience sees one seamless picture.")]
@@ -549,11 +654,12 @@ def build():
         "Give the destination a name (\"Destination X\" if left empty) and click <b>Save &amp; Create "
         "destination</b>.",
     ])
-    s += shot("The Output blending window with two overlapping outputs.", 85)
+    s += shot("The Output blending window with two overlapping outputs.", 85, "shot12.png")
     s += [P("Placing outputs", h2)]
     s += [P("Outputs are moved and resized with the mouse like sources: corners resize while keeping the shape "
             "(Shift resizes freely), the centre snaps (Ctrl disables it), arrow keys nudge, Delete removes an "
-            "output from the layout and Ctrl+Z undoes. Position and size can also be typed in.")]
+            "output from the layout and Ctrl+Z undoes. Position and size can also be typed in; Enter confirms a "
+            "value without closing the window.")]
     s += [P("Blend settings", h2)]
     s += table([
         ["Setting", "Use"],
@@ -573,22 +679,66 @@ def build():
             "appears there immediately. <b>Save changes</b> stores the settings (the button greys out once "
             "saved). If you <b>Close</b> with unsaved changes, you are asked whether to <b>Save changes</b> or "
             "<b>Discard changes</b>; discarding returns the projectors to the saved settings.")]
-    s += shot("Two projectors showing the test pattern, aligned and blended.", 70)
+    s += shot("Two projectors showing the test pattern, aligned and blended.", 70, "shot13.png")
     s += callout("Start with the test pattern: align the projectors with the grid and corner pin, adjust the "
                  "overlap, then the gamma, and finally the black level on a dark image.")
 
-    # 10 ------------------------------------------------------------
-    s += [PageBreak(), P("10. Audio and media", h1)]
+    # 11 ------------------------------------------------------------
+    s += [PageBreak(), P("11. Audio and media", h1)]
     s += [P("The <b>Audio mixer</b> dock shows a strip per audio source with a level meter, a fader, a mute "
             "button and a monitoring menu (Monitor off, Monitor only, Monitor and output). It lists the active "
             "audio sources and those of the selected scene; <b>View all</b> shows every audio source. Audio is "
             "the OBS audio: it is mixed and sent once, with the default destination.")]
     s += [P("The <b>Media controls</b> dock controls the selected media source: play / pause, restart and stop, "
             "with its time.")]
-    s += shot("The Media controls and Audio mixer docks.", 50)
+    s += shot("The Media controls and Audio mixer docks.", 50, "shot14.png")
 
-    # 11 ------------------------------------------------------------
-    s += [PageBreak(), P("11. Configuration Settings", h1)]
+    # 12 ------------------------------------------------------------
+    s += [PageBreak(), P("12. Companion and Stream Deck", h1)]
+    s += [P("Multidestination Studio comes with a version of Bitfocus Companion's <b>OBS Studio</b> module, "
+            "<b>obs-studio-4.0.0-multidestination.1.tgz</b>, attached to every release. It is the full OBS "
+            "Studio module plus a <b>Multidestination Studio</b> preset section, so a Stream Deck can drive the "
+            "studio.")]
+    s += [P("Installing the module", h2)]
+    s += steps([
+        "In OBS: <b>Tools → WebSocket Server Settings</b>, tick <b>Enable WebSocket server</b>, and note the "
+        "port, the IP address and the password (<b>Show Connect Info</b>).",
+        "Download <b>obs-studio-4.0.0-multidestination.1.tgz</b> from the release. Do not unzip or rename it.",
+        "In Companion: <b>Modules → Import module package</b>, and choose the file. It is added as one more "
+        "version of the OBS Studio module, named <b>4.0.0-multidestination.1</b>.",
+        "In <b>Connections</b>, add an OBS Studio connection with this version, or switch your existing OBS "
+        "connection to it. Enter the address, port and password. The connection turns green.",
+        "In <b>Buttons → Presets → OBS</b>, open <b>Multidestination Studio</b> and drag the buttons onto your "
+        "pages.",
+    ])
+    s += shot("Companion: the OBS Studio module with version 4.0.0-multidestination.1.", 55,
+              "companion-module.png")
+    s += [P("The buttons", h2)]
+    s += table([
+        ["Preset", "What it does", "Colour"],
+        ["Scene to Preview", "Shows the scene in the studio Preview (one button per scene)",
+         "Green in Preview, red in Program"],
+        ["Scene to Program", "Puts the scene on air on every unlocked destination it covers",
+         "Green in Preview, red in Program"],
+        ["Transition", "Takes the Preview to Program with the current transition", "—"],
+        ["Transition With", "Takes the Preview with that transition (one button per OBS transition)", "—"],
+        ["After a Transition", "Toggles “the previous Program returns to Preview”", "Lit when on"],
+        ["Destinations Shown", "Toggles all destinations / only those of the selected scene", "Lit when on"],
+        ["Cue to Preview", "Shows the cue in Preview; Transition then runs it (when Cues are on)",
+         "Green in Preview, red while running"],
+        ["Stop Cue", "Stops the running cue", "—"],
+    ], [35, 85, 45])
+    s += shot("Companion: the Multidestination Studio presets.", 60, "companion-presets.png")
+    s += [P("The buttons follow the studio live, and new scenes, transitions and cues appear in the presets by "
+            "themselves. The same features exist as actions and feedbacks named <b>Multidestination Studio - "
+            "…</b>. The plugin also answers obs-websocket vendor requests (vendor <b>multidestination-studio</b>) "
+            "for other control software. The full guide is in the project repository "
+            "(docs/companion-module.md).")]
+    s += callout("Keep your OBS connection on version 4.0.0-multidestination.1: switching it to an official "
+                 "version removes the Multidestination Studio buttons.", "Good to know")
+
+    # 13 ------------------------------------------------------------
+    s += [PageBreak(), P("13. Configuration Settings", h1)]
     s += [P("These settings apply to all your scene collections.")]
     s += table([
         ["Setting", "Choices"],
@@ -597,28 +747,33 @@ def build():
                                 "cover the same destinations."],
         ["Destinations shown…", "<b>All destinations, all the time</b> (recommended, default), or <b>Only the "
                                 "destinations of the selected scene</b>."],
-        ["Startup Settings…", "<b>Launch Multidestination Studio on startup</b>: on or off (off by default)."],
+        ["Cues…", "<b>Activate Cues</b>: on or off (off by default). Shows the Cues dock (chapter 9)."],
+        ["Startup Settings…", "<b>Launch Multidestination Studio on startup</b> and <b>Open every destination on "
+                              "its output screen at startup</b>: on or off (both off by default)."],
         ["Language…", "Same as OBS, English, Français or Norsk (Bokmål). Takes effect when OBS restarts."],
     ], [42, 123])
-    s += shot("The Configuration Settings menu and the After a transition dialog.", 60)
-    s += shot("The Destinations shown and Language dialogs.", 60)
-    s += shot("The Startup Settings dialog.", 35)
+    s += shot("The Configuration Settings menu and the After a transition dialog.", 60, "settings-menu.png")
+    s += shot("The Destinations shown and Language dialogs.", 60, "shot16.png")
+    s += shot("The Startup Settings dialog.", 35, "startup-settings.png")
 
-    # 12 ------------------------------------------------------------
-    s += [PageBreak(), P("12. Saving, shortcuts and troubleshooting", h1)]
+    # 14 ------------------------------------------------------------
+    s += [PageBreak(), P("14. Saving, shortcuts and troubleshooting", h1)]
     s += [P("What is saved, and where", h2)]
     s += bullets([
-        "Destinations, their scenes and layouts, output blending and the dock arrangement are saved in the OBS "
-        "<b>scene collection</b>. Switching collection switches all of them.",
+        "Destinations, their scenes and layouts, scene folders, cues, quick transitions, output blending and the "
+        "dock arrangement are saved in the OBS <b>scene collection</b>. Switching collection switches all of "
+        "them.",
         "Configuration Settings are saved in your OBS user settings and apply to every collection.",
     ])
     s += [P("Shortcuts at a glance", h2)]
     s += table([
         ["Key", "Action"],
         ["F11", "Full screen on / off"],
-        ["Esc", "Leave the studio; in a projection window, close the projection"],
+        ["Esc", "Leave the studio; in a projection window (after clicking it), close the projection"],
         ["Delete", "Remove the selected scenes or sources (with confirmation)"],
+        ["F2 (Enter on macOS)", "Rename the selected scene, folder, source or group"],
         ["Ctrl+Z", "Undo"],
+        ["Ctrl+G / Ctrl+Shift+G", "Group selected sources / Ungroup"],
         ["Arrow keys", "Nudge the selected source or output"],
         ["Shift (while resizing)", "Free aspect ratio"],
         ["Ctrl (while moving)", "Disable centre snapping"],
@@ -632,9 +787,15 @@ def build():
                                               "starting with [multidestination-studio]."],
         ["Windows blocks the installer", "The installer is not code-signed. In SmartScreen choose More info → "
                                          "Run anyway; in Defender, allow the file from the protection history."],
+        ["The studio was minimized", "Click its entry in the taskbar (the Dock on macOS)."],
         ["A destination stays empty", "Check that the selected scene covers it and that it is not locked."],
+        ["Transition is greyed out", "A scene folder is selected: select a scene."],
         ["Open fullscreen is greyed out", "Choose an output screen in the destination Settings, and check that "
                                           "the screen is connected."],
+        ["No Multidestination Studio section in Companion", "Check that the OBS connection uses version "
+                                                            "4.0.0-multidestination.1, that it is green, and that "
+                                                            "OBS runs with the plugin."],
+        ["Companion refuses the module", "Import the .tgz file itself (not a .zip); update Companion."],
         ["The interface is in the wrong language", "Configuration Settings → Language, then restart OBS."],
     ], [52, 113])
 
