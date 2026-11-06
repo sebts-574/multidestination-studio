@@ -43,6 +43,8 @@ Companion talks to OBS through the WebSocket server built into OBS.
 
 The module does **not** appear as a new, separate module. It is added as one more **version of the OBS Studio module**, named **4.0.0-multidestination.1**, next to the official versions (4.0.0, 3.15.x…). This is expected: it is the full OBS Studio module, plus the Multidestination Studio additions.
 
+> **Important:** importing the module does **not** change the version used by your connections. A connection you created before keeps using the official version until you change it (step 4). This is the most common reason why the Multidestination Studio buttons do not appear.
+
 ---
 
 ## Step 4 — Use this version for your OBS connection
@@ -54,11 +56,15 @@ The module does **not** appear as a new, separate module. It is added as one mor
 3. When Companion asks for the version, choose **4.0.0-multidestination.1**.
 4. Enter the **IP address**, **port** and **password** from step 2, then save.
 
-**If you already have an OBS connection**
+**If you already have an OBS connection** (this step is required)
 
 1. Go to **Connections** and open your OBS Studio connection.
-2. Change its **module version** to **4.0.0-multidestination.1**, then save.
+2. Change its **module version** from the official version (for example 4.0.0 or 3.15.x) to **4.0.0-multidestination.1**, then save.
 3. Your existing buttons keep working.
+
+You can check which version a connection uses in **Modules → OBS Studio**: the plug icon marks the version in use. If it is not on 4.0.0-multidestination.1, go back to step 4.
+
+Do this on **every computer** running Companion: the version is chosen separately on each Companion installation.
 
 The connection turns **green** when Companion reaches OBS.
 
@@ -106,7 +112,7 @@ All the other OBS features of the module (recording, streaming, sources, audio, 
 - Update Companion, then try again.
 
 **No “Multidestination Studio” section in the presets**
-- Check that the OBS connection uses version **4.0.0-multidestination.1**.
+- Most often, the OBS connection still uses the official version. Open the connection and set its module version to **4.0.0-multidestination.1** (step 4). In **Modules → OBS Studio**, the plug icon must be on that version.
 - Check that the connection is green and that OBS runs with Multidestination Studio 1.1.0 or later.
 - Restart OBS, then disable and re-enable the connection in Companion.
 

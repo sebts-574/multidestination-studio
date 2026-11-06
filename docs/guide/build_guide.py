@@ -706,8 +706,10 @@ def build():
         "Download <b>obs-studio-4.0.0-multidestination.1.tgz</b> from the release. Do not unzip or rename it.",
         "In Companion: <b>Modules → Import module package</b>, and choose the file. It is added as one more "
         "version of the OBS Studio module, named <b>4.0.0-multidestination.1</b>.",
-        "In <b>Connections</b>, add an OBS Studio connection with this version, or switch your existing OBS "
-        "connection to it. Enter the address, port and password. The connection turns green.",
+        "In <b>Connections</b>, add an OBS Studio connection with this version, or, if you already have one, "
+        "<b>change its module version</b> from the official version to <b>4.0.0-multidestination.1</b>. "
+        "Importing the module does not do this for you. Enter the address, port and password. The connection "
+        "turns green.",
         "In <b>Buttons → Presets → OBS</b>, open <b>Multidestination Studio</b> and drag the buttons onto your "
         "pages.",
     ])
@@ -734,8 +736,10 @@ def build():
             "…</b>. The plugin also answers obs-websocket vendor requests (vendor <b>multidestination-studio</b>) "
             "for other control software. The full guide is in the project repository "
             "(docs/companion-module.md).")]
-    s += callout("Keep your OBS connection on version 4.0.0-multidestination.1: switching it to an official "
-                 "version removes the Multidestination Studio buttons.", "Good to know")
+    s += callout("An existing OBS connection keeps the official version after the import: you must switch it "
+                 "to 4.0.0-multidestination.1 yourself, on every computer running Companion. In <b>Modules → OBS "
+                 "Studio</b>, the plug icon shows the version in use. Keep the connection on this version: an "
+                 "official version removes the Multidestination Studio buttons.", "Important")
 
     # 13 ------------------------------------------------------------
     s += [PageBreak(), P("13. Configuration Settings", h1)]
@@ -792,9 +796,10 @@ def build():
         ["Transition is greyed out", "A scene folder is selected: select a scene."],
         ["Open fullscreen is greyed out", "Choose an output screen in the destination Settings, and check that "
                                           "the screen is connected."],
-        ["No Multidestination Studio section in Companion", "Check that the OBS connection uses version "
-                                                            "4.0.0-multidestination.1, that it is green, and that "
-                                                            "OBS runs with the plugin."],
+        ["No Multidestination Studio section in Companion", "Most often the OBS connection still uses the "
+                                                            "official version: set its module version to "
+                                                            "4.0.0-multidestination.1. Then check that it is green "
+                                                            "and that OBS runs with the plugin."],
         ["Companion refuses the module", "Import the .tgz file itself (not a .zip); update Companion."],
         ["The interface is in the wrong language", "Configuration Settings → Language, then restart OBS."],
     ], [52, 113])
