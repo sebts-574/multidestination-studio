@@ -428,6 +428,7 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 			obs_frontend_set_current_transition(cutTransition);
 			obs_frontend_set_current_scene(linkedScene);
 			obs_frontend_set_current_transition(current);
+			IsolateLiveGroups();
 			return;
 		}
 		/* Transition ou durée imposée (transition rapide, cue) : OBS
@@ -441,6 +442,7 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 		if (otherDuration)
 			obs_frontend_set_transition_duration(durationMs);
 		obs_frontend_set_current_scene(linkedScene);
+		IsolateLiveGroups();
 		if (otherTransition || otherDuration) {
 			OBSSource previous = current.Get();
 			OBSSource used = templ;
@@ -569,6 +571,80 @@ void Destination::EndManual(bool finished)
 	PurgeRetiredCopies();
 }
 
+/* Groupes propres à une scène à l'antenne : les groupes d'OBS sont partagés
+ * entre les scènes qui les contiennent, donc afficher une autre source d'un
+ * groupe (sélecteur de groupes de Companion, œil dans l'Aperçu) changeait
+ * aussi le Program. Chaque groupe de la copie à l'antenne est remplacé par
+ * une copie privée (mêmes sources, même placement) : le changement ne vaut
+ * que pour l'Aperçu et passe à l'antenne à la transition suivante. */
+static void IsolateLiveGroups(obs_scene_t *scene)
+{
+	if (!scene)
+		return;
+	std::vector<obs_sceneitem_t *> groups;
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			if (obs_sceneitem_is_group(item) && !obs_obj_is_private(obs_sceneitem_get_source(item)))
+				static_cast<std::vector<obs_sceneitem_t *> *>(param)->push_back(item);
+			return true;
+		},
+		&groups);
+	for (obs_sceneitem_t *old : groups) {
+		obs_source_t *group = obs_sceneitem_get_source(old);
+		OBSSourceAutoRelease copy = obs_source_duplicate(group, obs_source_get_name(group), true);
+		if (!copy)
+			continue;
+		/* La copie privée n'a pas de canvas : OBS placerait ses sources
+		 * d'après la taille du canvas principal. On leur redonne leur
+		 * place en pixels. */
+		std::vector<obs_sceneitem_t *> from, to;
+		auto collect = [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			static_cast<std::vector<obs_sceneitem_t *> *>(param)->push_back(item);
+			return true;
+		};
+		obs_scene_enum_items(obs_sceneitem_group_get_scene(old), collect, &from);
+		obs_scene_enum_items(obs_group_from_source(copy), collect, &to);
+		for (size_t i = 0; i < from.size() && i < to.size(); i++) {
+			struct obs_transform_info info = {};
+			obs_sceneitem_get_info2(from[i], &info);
+			obs_sceneitem_set_info2(to[i], &info);
+		}
+
+		obs_sceneitem_t *item = obs_scene_add(scene, copy);
+		if (!item)
+			continue;
+		const int position = obs_sceneitem_get_order_position(old);
+		struct obs_transform_info info = {};
+		obs_sceneitem_get_info2(old, &info);
+		obs_sceneitem_set_info2(item, &info);
+		struct obs_sceneitem_crop crop = {};
+		obs_sceneitem_get_crop(old, &crop);
+		obs_sceneitem_set_crop(item, &crop);
+		obs_sceneitem_set_visible(item, obs_sceneitem_visible(old));
+		obs_sceneitem_set_locked(item, obs_sceneitem_locked(old));
+		obs_sceneitem_set_blending_method(item, obs_sceneitem_get_blending_method(old));
+		obs_sceneitem_set_blending_mode(item, obs_sceneitem_get_blending_mode(old));
+		obs_sceneitem_set_scale_filter(item, obs_sceneitem_get_scale_filter(old));
+		obs_sceneitem_remove(old);
+		obs_sceneitem_set_order_position(item, position);
+	}
+}
+
+/* Destination par défaut : la scène à l'antenne est la copie faite par OBS
+ * en mode Studio (« dupliquer la scène ») ; sans copie, ses groupes restent
+ * ceux de la scène. */
+void Destination::IsolateLiveGroups()
+{
+	if (!isMain)
+		return;
+	OBSSource live = LiveScene();
+	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
+	if (!live || !obs_obj_is_private(live) || live.Get() == current.Get())
+		return;
+	::IsolateLiveGroups(obs_scene_from_source(live));
+}
+
 OBSSource Destination::MakeLiveCopy(obs_source_t *linkedScene)
 {
 	if (!canvas || !linkedScene)
@@ -579,6 +655,7 @@ OBSSource Destination::MakeLiveCopy(obs_source_t *linkedScene)
 		obs_scene_duplicate(obs_scene_from_source(linkedScene), copyName.c_str(), OBS_SCENE_DUP_REFS);
 	if (!dup)
 		return nullptr;
+	::IsolateLiveGroups(dup);
 	OBSSource copy = obs_scene_get_source(dup);
 	obs_scene_release(dup);
 

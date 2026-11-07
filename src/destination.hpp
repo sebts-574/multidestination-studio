@@ -96,6 +96,9 @@ public:
 	 * utilisent une copie de la transition d'OBS (templ) ; la destination
 	 * par défaut utilise directement celle d'OBS. */
 	void Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ, int durationMs);
+	/* Groupes de la scène à l'antenne détachés de ceux de l'Aperçu
+	 * (destination par défaut, copie d'OBS en mode Studio). */
+	void IsolateLiveGroups();
 	/* Fondu vers le noir (destinations supplémentaires). */
 	void FadeToBlack(obs_source_t *templ, int durationMs);
 	/* Transition manuelle (barre T) : début, position 0…1, fin (finie ou

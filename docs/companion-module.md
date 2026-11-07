@@ -93,6 +93,8 @@ The connection turns **green** when Companion reaches OBS.
 
 The cue presets only appear when **Configuration Settings → Cues… → Activate Cues** is on in Multidestination Studio.
 
+The group buttons only change the **Preview**: the scene on air keeps its sources until the next transition, which takes your choice on air.
+
 Groups with the same name are switched together: the same group used in several scenes, or the same group recreated in another destination, has one button. Their sources are matched by name.
 
 Variables (for your own buttons): `$(obs:mds_preview_scene)`, `$(obs:mds_program_scene)`, `$(obs:mds_preview_cue)`, `$(obs:mds_running_cue)`, `$(obs:mds_cue_step)`, `$(obs:mds_cue_remaining)`, `$(obs:mds_cue_media)`, `$(obs:mds_cue_status)`, and `$(obs:mds_group_<group name>)` (spaces and special characters become `_`). Replace `obs` with your connection label if you renamed it.

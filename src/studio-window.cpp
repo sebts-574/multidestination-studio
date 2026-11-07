@@ -2732,13 +2732,32 @@ void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 				&StudioWindow::EditGroup);
 		menu.addSeparator();
 	}
+	/* Coller : raccourci écrit entre parenthèses (macOS n'affiche pas les
+	 * raccourcis dans les menus contextuels), en Cmd / Option sur macOS et
+	 * Ctrl / Alt ailleurs. */
+#ifdef Q_OS_MACOS
+	const QString pasteKeys = "Cmd+V";
+	const QString pasteDuplicateKeys = "Cmd+Option+V";
+#else
+	const QString pasteKeys = "Ctrl+V";
+	const QString pasteDuplicateKeys = "Ctrl+Alt+V";
+#endif
+	std::vector<std::pair<QAction *, QString>> renamed;
 	for (QAction *a : editActions) {
-		const bool always = a->text() == Tr("MDS.Paste") || a->text() == Tr("MDS.PasteDuplicate") ||
-				    a->text() == Tr("MDS.Undo");
+		const bool paste = a->text() == Tr("MDS.Paste");
+		const bool pasteDuplicate = a->text() == Tr("MDS.PasteDuplicate");
+		const bool always = paste || pasteDuplicate || a->text() == Tr("MDS.Undo");
 		a->setEnabled(item || always);
+		if (paste || pasteDuplicate) {
+			renamed.emplace_back(a, a->text());
+			a->setShortcutVisibleInContextMenu(false);
+			a->setText(QString("%1 (%2)").arg(a->text(), paste ? pasteKeys : pasteDuplicateKeys));
+		}
 		menu.addAction(a);
 	}
 	menu.exec(globalPos);
+	for (auto &[a, text] : renamed)
+		a->setText(text);
 	for (QAction *a : editActions)
 		a->setEnabled(true);
 }

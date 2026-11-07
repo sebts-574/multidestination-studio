@@ -24,6 +24,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 #include <util/config-file.h>
 
+#include <QTimer>
+
 #include <cstring>
 
 Manager &Manager::Get()
@@ -410,6 +412,15 @@ void Manager::OnObsProgramChanged()
 	if (current && !taking && !obs_weak_source_references_source(programScene, current)) {
 		programScene = OBSGetWeakRef(current.Get());
 		emit userTake();
+	}
+	/* Prise faite dans OBS : la copie à l'antenne garde ses propres
+	 * groupes (après la mise en place de la transition). */
+	if (Destination *main = Main()) {
+		main->IsolateLiveGroups();
+		QTimer::singleShot(0, this, [this]() {
+			if (Destination *m = Main())
+				m->IsolateLiveGroups();
+		});
 	}
 	emit programChanged();
 }

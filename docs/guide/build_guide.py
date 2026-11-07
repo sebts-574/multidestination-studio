@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.1 - User Guide (PDF).
+"""Multidestination Studio 1.1.2 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.1 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.2 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.1")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.2")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.1 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.2 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -341,11 +341,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.1-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.2-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.1-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.2-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.2.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -547,7 +547,8 @@ def build():
         ["Command", "Shortcut"],
         ["Undo", "Ctrl+Z"],
         ["Copy / Paste (reference)", "Ctrl+C / Ctrl+V"],
-        ["Paste (duplicate): an independent copy, with its filters", "Ctrl+Alt+V (Cmd+Option+V on macOS)"],
+        ["Paste (duplicate): an independent copy, with its filters", "Ctrl+Alt+V (Cmd+Option+V on macOS). "
+         "The right-click menu shows both paste shortcuts."],
         ["Group selected sources / Ungroup", "Ctrl+G / Ctrl+Shift+G"],
         ["Remove (with confirmation)", "Delete or Backspace"],
         ["Copy / Paste transform", "Ctrl+Shift+C / Ctrl+Shift+V"],
@@ -740,7 +741,8 @@ def build():
          "Green in Preview, red while running"],
         ["Stop Cue", "Stops the running cue with a fade to black", "—"],
         ["Running Cue Status", "Running cue, step and time left", "—"],
-        ["Group", "One per source group: shows the source shown; each press shows the next one", "—"],
+        ["Group", "One per source group: shows the source shown; each press shows the next one, in Preview "
+                  "only (on air at the next transition)", "—"],
         ["Group: show …", "One per source of each group: shows it and hides the others", "Lit while shown"],
     ], [35, 85, 45])
     s += shot("Companion: the Multidestination Studio presets.", 60, "companion-presets.png")
