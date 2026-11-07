@@ -469,7 +469,11 @@ void TileWidget::MousePress(QMouseEvent *event)
 	if (event->button() == Qt::RightButton) {
 		const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load());
 		SetSelectedItem(id);
+		/* Clic droit : une source déjà dans la sélection de la liste la
+		 * garde (commandes du menu sur toutes les sources choisies). */
+		contextClick = true;
 		emit selectionChanged(this, id);
+		contextClick = false;
 		emit contextMenuRequested(this, event->globalPosition().toPoint());
 		return;
 	}

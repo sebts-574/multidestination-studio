@@ -51,6 +51,8 @@ public:
 	/* Ouverture des propriétés d'une source (double-clic), fournie par la
 	 * fenêtre du studio pour garder la fenêtre d'OBS derrière elle. */
 	static inline std::function<void(obs_source_t *)> openProperties;
+	/* Vrai pendant la sélection faite par un clic droit. */
+	bool ContextClick() const { return contextClick; }
 
 	/* Aperçu : scène de cette destination pour la scène sélectionnée. */
 	void SetLinkedScene(obs_source_t *scene);
@@ -94,6 +96,7 @@ signals:
 	void contextMenuRequested(TileWidget *tile, const QPoint &globalPos);
 
 private:
+	bool contextClick = false;
 	static void DrawCb(void *data, uint32_t cx, uint32_t cy);
 	bool ToCanvas(const QPointF &widgetPos, float &x, float &y, float &screenScale) const;
 	OBSSceneItem SelectedSceneItem() const;

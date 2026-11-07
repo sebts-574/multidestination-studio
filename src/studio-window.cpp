@@ -68,6 +68,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QStyleOptionSlider>
 #include <QToolBar>
 #include <QWidgetAction>
+#include <QWindow>
 #include <QTreeWidget>
 #include <set>
 #include <QToolButton>
@@ -177,18 +178,6 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 		OBSSource src = source;
 		OpenOnStudio([src]() { obs_frontend_open_source_properties(src); });
 	};
-	/* OBS réactivé depuis une autre application (barre des tâches, Dock) :
-	 * le studio ouvert passe devant la fenêtre d'OBS. */
-	connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-		if (state != Qt::ApplicationActive || !isVisible())
-			return;
-		QTimer::singleShot(0, this, [this]() {
-			QWidget *active = QApplication::activeWindow();
-			if (!isMinimized() &&
-			    (!active || active == static_cast<QWidget *>(obs_frontend_get_main_window())))
-				BringToFront();
-		});
-	});
 
 	BuildCentral();
 	BuildDocks();
@@ -1381,6 +1370,13 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 					found = top->child(k);
 			}
 		}
+		/* Clic droit sur une source déjà sélectionnée : la sélection
+		 * reste (le menu agit sur toutes). */
+		if (t->ContextClick() && found && found->isSelected()) {
+			sourceList->setCurrentItem(found, 0, QItemSelectionModel::NoUpdate);
+			UpdateMediaControls();
+			return;
+		}
 		/* Un clic dans l'aperçu sélectionne cette source seule. */
 		sourceList->clearSelection();
 		if (found) {
@@ -1502,6 +1498,16 @@ bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
 		}
 	}
 
+	/* Fenêtre d'OBS sur le point de s'afficher, ouverte depuis le studio :
+	 * elle passe devant le studio au lieu de faire venir la fenêtre d'OBS. */
+	if (adoptingWindows && event->type() == QEvent::Show) {
+		auto *w = qobject_cast<QWidget *>(watched);
+		QWidget *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+		if (w && w != this && w->isWindow() && w->parentWidget() == main && w->windowHandle() &&
+		    windowHandle() && !w->inherits("QMenu"))
+			w->windowHandle()->setTransientParent(windowHandle());
+	}
+
 	/* La fenêtre d'OBS revient (clic dans la barre des tâches / le Dock,
 	 * fenêtre restaurée) : le studio ouvert passe devant. */
 	if (event->type() == QEvent::WindowStateChange && isVisible() &&
@@ -1539,24 +1545,16 @@ void StudioWindow::BringToFront()
 }
 
 /* Fenêtres d'OBS ouvertes depuis le studio (propriétés, filtres) : OBS les
- * rattache à sa fenêtre principale, qui passait alors devant le studio. On
- * les rattache au studio. */
+ * rattache à sa fenêtre principale, que le système faisait alors passer
+ * devant le studio. Juste avant leur affichage (voir eventFilter), elles
+ * sont rattachées à la fenêtre du studio : elles s'ouvrent devant lui, sans
+ * que la fenêtre d'OBS apparaisse. Elles restent des fenêtres d'OBS (même
+ * propriétaire Qt), qui les ferme et les détruit comme d'habitude. */
 void StudioWindow::OpenOnStudio(const std::function<void()> &open)
 {
-	QWidget *main = static_cast<QWidget *>(obs_frontend_get_main_window());
-	const QWidgetList before = QApplication::topLevelWidgets();
+	adoptingWindows = true;
 	open();
-	for (QWidget *w : QApplication::topLevelWidgets()) {
-		if (before.contains(w) || !w->isVisible() || w->parentWidget() != main || w->inherits("QMenu"))
-			continue;
-		const Qt::WindowFlags flags = w->windowFlags();
-		const QRect geometry = w->geometry();
-		w->setParent(this, flags);
-		w->setGeometry(geometry);
-		w->show();
-		w->raise();
-		w->activateWindow();
-	}
+	adoptingWindows = false;
 }
 
 void StudioWindow::SetHighlight(bool on)
@@ -2156,7 +2154,26 @@ void StudioWindow::MoveSourceRows(QTreeWidgetItem *target, int position)
 		}
 	}
 	obs_scene_reorder_items2(s, order.data(), order.size());
+
+	/* Après un glisser : seules les lignes déplacées restent sélectionnées
+	 * (l'ancienne sélection de l'aperçu ne s'y ajoute plus). */
+	QSet<qlonglong> movedIds;
+	for (QTreeWidgetItem *row : rows)
+		movedIds.insert(row->data(0, Qt::UserRole).toLongLong());
+	if (TileWidget *tile = ActiveTile(); tile && !rows.empty())
+		tile->SetSelectedItem(rows.front()->data(0, Qt::UserRole).toLongLong());
 	RefreshSources();
+	{
+		const QSignalBlocker blocker(sourceList);
+		sourceList->clearSelection();
+		for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
+			QTreeWidgetItem *top = sourceList->topLevelItem(i);
+			top->setSelected(movedIds.contains(top->data(0, Qt::UserRole).toLongLong()));
+			for (int k = 0; k < top->childCount(); k++)
+				top->child(k)->setSelected(
+					movedIds.contains(top->child(k)->data(0, Qt::UserRole).toLongLong()));
+		}
+	}
 	AfterEdit();
 }
 
@@ -3169,7 +3186,19 @@ std::vector<OBSSceneItem> StudioWindow::TransformTargets() const
 		if (OBSSceneItem item = CurrentItem())
 			items.push_back(item);
 	}
-	return items;
+	/* Un groupe et une de ses sources sélectionnés ensemble : la commande
+	 * agit sur le groupe seulement (OBS ne recalcule la place du groupe
+	 * qu'à l'image suivante, la source serait placée de travers). */
+	obs_scene_t *s = ActiveScene();
+	std::vector<OBSSceneItem> kept;
+	for (auto &item : items) {
+		obs_sceneitem_t *group = s ? obs_sceneitem_get_group(s, item) : nullptr;
+		const bool groupToo = group && std::any_of(items.begin(), items.end(),
+							   [group](const OBSSceneItem &o) { return o.Get() == group; });
+		if (!groupToo)
+			kept.push_back(item);
+	}
+	return kept;
 }
 
 void StudioWindow::EditResetTransform()

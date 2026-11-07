@@ -2,7 +2,7 @@
 
 **Multidestination Studio** is a plugin for [OBS Studio](https://obsproject.com) that turns OBS into a multi-output show controller. It adds independent **destinations** (an LED wall, a set of blended projectors, stage monitors, the stream), each with its own resolution, Preview and Program, all driven from one full-screen studio view with a single TAKE.
 
-Version **1.1.3** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
+Version **1.1.4** · Windows, macOS, Linux · OBS Studio 31.1 or later · GPL-2.0-or-later
 
 ## Features
 
@@ -26,9 +26,9 @@ Download the file for your system from the [Releases](https://github.com/sebts-5
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10/11 (x64) | `multidestination-studio-1.1.3-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
+| Windows 10/11 (x64) | `multidestination-studio-1.1.4-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
 | macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
-| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.1.3-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.1.3-x86_64-linux-gnu.deb` |
+| Ubuntu 24.04 (x86_64) | `multidestination-studio-1.1.4-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.1.4-x86_64-linux-gnu.deb` |
 | Bitfocus Companion | `obs-studio-4.0.0-multidestination.2.tgz` | Companion OBS Studio module with the Multidestination Studio presets: see [Companion / Stream Deck](docs/companion-module.md). |
 
 Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
@@ -49,7 +49,7 @@ To control the studio from Bitfocus Companion or a Stream Deck, see [Companion /
 
 ## Building from source
 
-The project uses the [obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate) build system (CMake presets, Qt 6, OBS 31.1.3 dependencies downloaded automatically).
+The project uses the [obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate) build system (CMake presets, Qt 6, OBS 31.1.4 dependencies downloaded automatically).
 
 ```sh
 cmake --preset windows-x64      # or macos, ubuntu-x86_64

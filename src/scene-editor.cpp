@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <graphics/matrix4.h>
 #include <graphics/vec3.h>
 
+#include <algorithm>
 #include <cmath>
 #include <mutex>
 #include <string>
@@ -337,22 +338,12 @@ void WorldScale(obs_scene_t *top, obs_sceneitem_t *item, float &sx, float &sy)
 
 int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer, bool wholeGroup)
 {
-	/* Source déjà sélectionnée sous le curseur : un clic la garde (pour la
-	 * déplacer même si une autre la recouvre). */
-	if (prefer >= 0) {
-		obs_sceneitem_t *item = FindItem(scene, prefer);
-		obs_sceneitem_t *group = item ? ParentGroup(scene, item) : nullptr;
-		Box box;
-		const bool usable =
-			item && obs_sceneitem_visible(item) && !obs_sceneitem_locked(item) &&
-			(!group || (!wholeGroup && obs_sceneitem_visible(group) && !obs_sceneitem_locked(group)));
-		if (usable && GetWorldBox(scene, item, box) && box.Contains(x, y))
-			return prefer;
-	}
-
-	/* Source la plus haute sous le curseur, y compris dans les groupes ;
-	 * dans un groupe, un clic à côté de ses sources (dans son cadre)
-	 * sélectionne le groupe. wholeGroup : toujours le groupe. */
+	/* Toujours la source la plus haute sous le curseur, y compris dans un
+	 * groupe (une source déjà sélectionnée n'est plus prioritaire : elle
+	 * empêchait de cliquer sur celles posées dessus). Dans le cadre d'un
+	 * groupe mais à côté de ses sources : le groupe. wholeGroup : le
+	 * groupe. */
+	(void)prefer;
 	struct Ctx {
 		obs_scene_t *top;
 		float x, y;
@@ -368,32 +359,54 @@ int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer, bool whole
 			auto *c = static_cast<Ctx *>(param);
 			if (!obs_sceneitem_visible(item) || obs_sceneitem_locked(item))
 				return true;
-			Box box;
-			if (!GetBox(item, box) || !box.Contains(c->x, c->y))
+			if (!obs_sceneitem_is_group(item)) {
+				Box box;
+				if (GetBox(item, box) && box.Contains(c->x, c->y))
+					c->id = obs_sceneitem_get_id(item);
 				return true;
-			const int64_t groupId = obs_sceneitem_get_id(item);
-			c->id = groupId;
-			if (!obs_sceneitem_is_group(item) || c->wholeGroup)
-				return true;
+			}
+			/* Groupe : sa source la plus haute sous le curseur, sinon le
+			 * groupe si le point est dans son cadre (ou dans le cadre de
+			 * l'ensemble de ses sources visibles). */
 			struct Inner {
 				obs_scene_t *top;
 				float x, y;
 				int64_t id;
-			} inner{c->top, c->x, c->y, -1};
+				bool any;
+				Box all;
+			} inner{c->top, c->x, c->y, -1, false, {}};
 			obs_scene_enum_items(
 				obs_sceneitem_group_get_scene(item),
 				[](obs_scene_t *, obs_sceneitem_t *child, void *p) {
 					auto *in = static_cast<Inner *>(p);
-					if (!obs_sceneitem_visible(child) || obs_sceneitem_locked(child))
+					if (!obs_sceneitem_visible(child))
 						return true;
 					Box b;
-					if (GetWorldBox(in->top, child, b) && b.Contains(in->x, in->y))
+					if (!GetWorldBox(in->top, child, b))
+						return true;
+					if (!in->any) {
+						in->all = b;
+						in->any = true;
+					} else {
+						const float x2 = std::max(in->all.x + in->all.w, b.x + b.w);
+						const float y2 = std::max(in->all.y + in->all.h, b.y + b.h);
+						in->all.x = std::min(in->all.x, b.x);
+						in->all.y = std::min(in->all.y, b.y);
+						in->all.w = x2 - in->all.x;
+						in->all.h = y2 - in->all.y;
+					}
+					if (!obs_sceneitem_locked(child) && b.Contains(in->x, in->y))
 						in->id = obs_sceneitem_get_id(child);
 					return true;
 				},
 				&inner);
+			Box frame;
+			const bool inFrame = (GetBox(item, frame) && frame.Contains(c->x, c->y)) ||
+					     (inner.any && inner.all.Contains(c->x, c->y));
 			if (inner.id >= 0)
-				c->id = inner.id;
+				c->id = c->wholeGroup ? obs_sceneitem_get_id(item) : inner.id;
+			else if (inFrame)
+				c->id = obs_sceneitem_get_id(item);
 			return true;
 		},
 		&ctx);

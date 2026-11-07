@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.3 - User Guide (PDF).
+"""Multidestination Studio 1.1.4 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.3 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.4 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.3")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.4")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.3 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.4 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -341,11 +341,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.3-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.4-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.3-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.4-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.2.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -534,10 +534,11 @@ def build():
         ["Crop", "Hold Alt and drag a handle, or right-click → Crop… (a preview of the whole source with "
                  "handles, and the values in pixels)."],
         ["Nudge", "Arrow keys move the selected source by one pixel."],
-        ["Select", "Click a source in the tile: the source under the cursor is selected alone, also inside a "
-                   "group; clicking inside a group but next to its sources selects the group. Ctrl + click "
-                   "(Cmd + click on macOS) selects the whole group. In the Sources dock, Ctrl + click and Shift "
-                   "+ click select several sources."],
+        ["Select", "Click a source in the tile: the highest source under the cursor is selected alone, also "
+                   "inside a group; clicking inside a group but next to its sources selects the group. Ctrl + "
+                   "click (Cmd + click on macOS) selects the whole group. In the Sources dock, Ctrl + click and "
+                   "Shift + click select several sources; a right-click in the tile on one of them keeps the "
+                   "selection, so Fit, Stretch and Center apply to all."],
         ["Reorder", "Drag sources in the Sources dock, or use ↑ / ↓ and the Edit → Order commands."],
         ["Rename", "F2 (Enter on macOS), or right-click → Rename."],
     ], [30, 135])

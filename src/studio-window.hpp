@@ -78,6 +78,7 @@ protected:
 	bool eventFilter(QObject *watched, QEvent *event) override;
 	void BringToFront();
 	void OpenOnStudio(const std::function<void()> &open);
+	bool adoptingWindows = false;
 	void dragEnterEvent(QDragEnterEvent *event) override;
 	void dropEvent(QDropEvent *event) override;
 
