@@ -658,4 +658,64 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 	}
 }
 
+/* Plusieurs sources : contour fin de chacune, poignées sur le cadre qui
+ * les englobe toutes. */
+bool UnionWorldBox(obs_scene_t *top, const std::vector<int64_t> &ids, Box &box)
+{
+	bool any = false;
+	for (int64_t id : ids) {
+		obs_sceneitem_t *item = FindItem(top, id);
+		Box b;
+		if (!item || !GetWorldBox(top, item, b))
+			continue;
+		if (!any) {
+			box = b;
+			any = true;
+			continue;
+		}
+		const float x2 = std::max(box.x + box.w, b.x + b.w);
+		const float y2 = std::max(box.y + box.h, b.y + b.h);
+		box.x = std::min(box.x, b.x);
+		box.y = std::min(box.y, b.y);
+		box.w = x2 - box.x;
+		box.h = y2 - box.y;
+	}
+	return any;
+}
+
+void DrawMultiSelection(obs_scene_t *scene, const std::vector<int64_t> &ids, float screenScale, uint32_t canvasW,
+			uint32_t canvasH)
+{
+	if (!scene || screenScale <= 0.0f || ids.empty())
+		return;
+	const float px = 1.0f / screenScale;
+	for (int64_t id : ids) {
+		obs_sceneitem_t *item = FindItem(scene, id);
+		Box b;
+		if (item && GetWorldBox(scene, item, b))
+			DrawOutline(b.x, b.y, b.w, b.h, 1.0f * px, SELECTION_COLOR);
+	}
+	Box box;
+	if (!UnionWorldBox(scene, ids, box))
+		return;
+	const float cw = float(canvasW);
+	const float ch = float(canvasH);
+	const float eps = 0.5f;
+	const bool outside = box.x < -eps || box.y < -eps || box.x + box.w > cw + eps || box.y + box.h > ch + eps;
+	const uint32_t color = outside ? OUTSIDE_COLOR : SELECTION_COLOR;
+	DrawOutline(box.x, box.y, box.w, box.h, 2.0f * px, color);
+	const float hs = 8.0f * px;
+	const float xs[3] = {box.x, box.x + box.w * 0.5f, box.x + box.w};
+	const float ys[3] = {box.y, box.y + box.h * 0.5f, box.y + box.h};
+	for (int ix = 0; ix < 3; ix++) {
+		for (int iy = 0; iy < 3; iy++) {
+			if (ix == 1 && iy == 1)
+				continue;
+			DrawSolidRect(xs[ix] - hs * 0.5f - px, ys[iy] - hs * 0.5f - px, hs + 2.0f * px, hs + 2.0f * px,
+				      color);
+			DrawSolidRect(xs[ix] - hs * 0.5f, ys[iy] - hs * 0.5f, hs, hs, HANDLE_COLOR);
+		}
+	}
+}
+
 } // namespace SceneEditor

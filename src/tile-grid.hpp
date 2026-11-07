@@ -74,6 +74,9 @@ public:
 	static void EnsureAbsentLabel();
 	static void ReleaseShared();
 	void SetSelectedItem(int64_t id);
+	/* Sources sélectionnées ensemble dans la liste (2 ou plus) : elles se
+	 * déplacent et se redimensionnent ensemble dans l'aperçu. */
+	void SetMultiSelection(const std::vector<int64_t> &ids);
 	int64_t SelectedItem() const { return selectedId.load(); }
 	void RefreshHeader();
 
@@ -97,6 +100,14 @@ signals:
 
 private:
 	bool contextClick = false;
+	/* Sources visées par un glisser à plusieurs : la sélection multiple,
+	 * sans les sources dont le groupe est aussi sélectionné (le groupe
+	 * l'emporte). Vide s'il n'y en a pas au moins deux. */
+	std::vector<int64_t> MultiTargets(obs_scene_t *scene) const;
+	std::vector<int64_t> multiIds; /* protégé par mutex */
+	bool multiDrag = false;
+	std::vector<std::pair<int64_t, SceneEditor::Box>> multiStart;
+	SceneEditor::Box startUnion;
 	static void DrawCb(void *data, uint32_t cx, uint32_t cy);
 	bool ToCanvas(const QPointF &widgetPos, float &x, float &y, float &screenScale) const;
 	OBSSceneItem SelectedSceneItem() const;

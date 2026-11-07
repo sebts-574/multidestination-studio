@@ -186,6 +186,85 @@ void TileWidget::SetSelectedItem(int64_t id)
 	selectedId = id;
 }
 
+void TileWidget::SetMultiSelection(const std::vector<int64_t> &ids)
+{
+	std::lock_guard<std::mutex> lock(mutex);
+	multiIds = ids;
+}
+
+std::vector<int64_t> TileWidget::MultiTargets(obs_scene_t *scene) const
+{
+	std::vector<int64_t> ids;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		ids = multiIds;
+	}
+	if (ids.size() < 2 || !scene)
+		return {};
+	std::vector<int64_t> targets;
+	for (int64_t id : ids) {
+		obs_sceneitem_t *item = SceneEditor::FindItem(scene, id);
+		if (!item)
+			continue;
+		obs_sceneitem_t *group = obs_sceneitem_get_group(scene, item);
+		if (group && std::find(ids.begin(), ids.end(), obs_sceneitem_get_id(group)) != ids.end())
+			continue;
+		targets.push_back(id);
+	}
+	if (targets.size() < 2)
+		return {};
+	return targets;
+}
+
+/* Nouveau cadre d'une poignée tirée de (dx, dy) : bord opposé fixe,
+ * proportions gardées sauf avec Maj. */
+static SceneEditor::Box ResizedBox(const SceneEditor::Box &b, int edges, float dx, float dy, bool freeRatio)
+{
+	const bool horiz = edges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT);
+	const bool vert = edges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM);
+	const float ratio = b.h > 0.0f ? b.w / b.h : 1.0f;
+	float w = b.w;
+	float h = b.h;
+	if (edges & SceneEditor::EDGE_LEFT)
+		w = b.w - dx;
+	if (edges & SceneEditor::EDGE_RIGHT)
+		w = b.w + dx;
+	if (edges & SceneEditor::EDGE_TOP)
+		h = b.h - dy;
+	if (edges & SceneEditor::EDGE_BOTTOM)
+		h = b.h + dy;
+	w = std::fmax(w, 4.0f);
+	h = std::fmax(h, 4.0f);
+	if (!freeRatio) {
+		if (horiz && vert) {
+			if (w / b.w > h / b.h)
+				h = w / ratio;
+			else
+				w = h * ratio;
+		} else if (horiz) {
+			h = w / ratio;
+		} else if (vert) {
+			w = h * ratio;
+		}
+	}
+	SceneEditor::Box nb;
+	nb.w = w;
+	nb.h = h;
+	if (edges & SceneEditor::EDGE_LEFT)
+		nb.x = b.x + b.w - w;
+	else if (edges & SceneEditor::EDGE_RIGHT)
+		nb.x = b.x;
+	else
+		nb.x = b.x + (b.w - w) * 0.5f;
+	if (edges & SceneEditor::EDGE_TOP)
+		nb.y = b.y + b.h - h;
+	else if (edges & SceneEditor::EDGE_BOTTOM)
+		nb.y = b.y;
+	else
+		nb.y = b.y + (b.h - h) * 0.5f;
+	return nb;
+}
+
 void TileWidget::RefreshHeader()
 {
 	QString text =
@@ -414,9 +493,18 @@ void TileWidget::DrawCb(void *data, uint32_t cx, uint32_t cy)
 
 		/* Sélection et guides seulement sur la tuile active ; cadres
 		 * provisoires des médias toujours visibles. */
-		if (scene)
-			SceneEditor::DrawSelection(obs_scene_from_source(scene), (isActive && canEdit) ? selected : -1,
-						   screenScale, w, h);
+		if (scene) {
+			obs_scene_t *sc = obs_scene_from_source(scene);
+			const std::vector<int64_t> multi = (isActive && canEdit) ? tile->MultiTargets(sc)
+										 : std::vector<int64_t>();
+			if (multi.empty()) {
+				SceneEditor::DrawSelection(sc, (isActive && canEdit) ? selected : -1, screenScale, w,
+							   h);
+			} else {
+				SceneEditor::DrawSelection(sc, -1, screenScale, w, h);
+				SceneEditor::DrawMultiSelection(sc, multi, screenScale, w, h);
+			}
+		}
 	});
 }
 
@@ -483,7 +571,42 @@ void TileWidget::MousePress(QMouseEvent *event)
 	startX = x;
 	startY = y;
 	dragMoved = false;
+	multiDrag = false;
 	const float tol = HANDLE_TOLERANCE_PX / s;
+	const bool wholeGroup = event->modifiers() & Qt::ControlModifier;
+
+	/* Plusieurs sources sélectionnées : poignées du cadre commun, ou clic
+	 * sur l'une d'elles pour les déplacer ensemble. */
+	if (const std::vector<int64_t> targets = MultiTargets(sc); !targets.empty()) {
+		Box u;
+		if (SceneEditor::UnionWorldBox(sc, targets, u)) {
+			const int edges = SceneEditor::HandleAt(u, x, y, tol);
+			bool onTarget = false;
+			if (edges == SceneEditor::EDGE_NONE) {
+				const int64_t hit = SceneEditor::HitTest(sc, x, y, -1, wholeGroup);
+				obs_sceneitem_t *hitItem = SceneEditor::FindItem(sc, hit);
+				obs_sceneitem_t *hitGroup = hitItem ? obs_sceneitem_get_group(sc, hitItem) : nullptr;
+				for (int64_t id : targets) {
+					if (id == hit || (hitGroup && id == obs_sceneitem_get_id(hitGroup)))
+						onTarget = true;
+				}
+			}
+			if (edges != SceneEditor::EDGE_NONE || onTarget) {
+				multiStart.clear();
+				for (int64_t id : targets) {
+					Box b;
+					obs_sceneitem_t *it = SceneEditor::FindItem(sc, id);
+					if (it && SceneEditor::GetWorldBox(sc, it, b))
+						multiStart.emplace_back(id, b);
+				}
+				startUnion = u;
+				dragEdges = edges;
+				drag = edges != SceneEditor::EDGE_NONE ? Drag::Resize : Drag::Move;
+				multiDrag = true;
+				return;
+			}
+		}
+	}
 
 	/* Poignées de la source déjà sélectionnée. */
 	OBSSceneItem item = SelectedSceneItem();
@@ -504,7 +627,6 @@ void TileWidget::MousePress(QMouseEvent *event)
 	/* Clic : la source sous le curseur, même dans un groupe (à côté de ses
 	 * sources : le groupe). Ctrl+clic (Cmd+clic sur macOS) : le groupe
 	 * entier. */
-	const bool wholeGroup = event->modifiers() & Qt::ControlModifier;
 	const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load(), wholeGroup);
 	SetSelectedItem(id);
 	emit selectionChanged(this, id);
@@ -549,7 +671,7 @@ void TileWidget::MouseMove(QMouseEvent *event)
 		return;
 	}
 
-	if (!item) {
+	if (!item && !multiDrag) {
 		drag = Drag::None;
 		return;
 	}
@@ -572,6 +694,40 @@ void TileWidget::MouseMove(QMouseEvent *event)
 	const bool noSnap = event->modifiers() & Qt::ControlModifier;
 	const float tol = SNAP_PX / s;
 
+	if (multiDrag) {
+		/* Toutes les sources ensemble : le cadre commun se déplace ou se
+		 * redimensionne, chacune garde sa place dans ce cadre. */
+		Box nb = startUnion;
+		if (drag == Drag::Move) {
+			nb.x += dx;
+			nb.y += dy;
+			if (!noSnap) {
+				const float offX = cw * 0.5f - (nb.x + nb.w * 0.5f);
+				const float offY = ch * 0.5f - (nb.y + nb.h * 0.5f);
+				if (std::fabs(offX) <= tol)
+					nb.x += offX;
+				if (std::fabs(offY) <= tol)
+					nb.y += offY;
+			}
+		} else {
+			nb = ResizedBox(startUnion, dragEdges, dx, dy, event->modifiers() & Qt::ShiftModifier);
+		}
+		const float sx = startUnion.w > 0.0f ? nb.w / startUnion.w : 1.0f;
+		const float sy = startUnion.h > 0.0f ? nb.h / startUnion.h : 1.0f;
+		for (const auto &[id, b] : multiStart) {
+			obs_sceneitem_t *it = SceneEditor::FindItem(top, id);
+			if (!it)
+				continue;
+			Box r;
+			r.x = nb.x + (b.x - startUnion.x) * sx;
+			r.y = nb.y + (b.y - startUnion.y) * sy;
+			r.w = b.w * sx;
+			r.h = b.h * sy;
+			SceneEditor::SetWorldBox(top, it, r);
+		}
+		return;
+	}
+
 	if (drag == Drag::Move) {
 		/* Pas de limite aux bords ; seul le centre est aimanté. */
 		Box b = startBox;
@@ -590,57 +746,8 @@ void TileWidget::MouseMove(QMouseEvent *event)
 	}
 
 	if (drag == Drag::Resize) {
-		const Box &b = startBox;
-		const bool horiz = dragEdges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT);
-		const bool vert = dragEdges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM);
-		const bool freeRatio = event->modifiers() & Qt::ShiftModifier;
-		const float ratio = b.h > 0.0f ? b.w / b.h : 1.0f;
-
-		float w = b.w;
-		float h = b.h;
-		if (dragEdges & SceneEditor::EDGE_LEFT)
-			w = b.w - dx;
-		if (dragEdges & SceneEditor::EDGE_RIGHT)
-			w = b.w + dx;
-		if (dragEdges & SceneEditor::EDGE_TOP)
-			h = b.h - dy;
-		if (dragEdges & SceneEditor::EDGE_BOTTOM)
-			h = b.h + dy;
-		w = std::fmax(w, 4.0f);
-		h = std::fmax(h, 4.0f);
-
-		/* Proportions gardées sur toutes les poignées, sauf avec Maj. */
-		if (!freeRatio) {
-			if (horiz && vert) {
-				if (w / b.w > h / b.h)
-					h = w / ratio;
-				else
-					w = h * ratio;
-			} else if (horiz) {
-				h = w / ratio;
-			} else if (vert) {
-				w = h * ratio;
-			}
-		}
-
-		Box nb;
-		nb.w = w;
-		nb.h = h;
-		/* Le bord opposé reste fixe ; sur une poignée de côté, l'autre
-		 * axe reste centré. */
-		if (dragEdges & SceneEditor::EDGE_LEFT)
-			nb.x = b.x + b.w - w;
-		else if (dragEdges & SceneEditor::EDGE_RIGHT)
-			nb.x = b.x;
-		else
-			nb.x = b.x + (b.w - w) * 0.5f;
-		if (dragEdges & SceneEditor::EDGE_TOP)
-			nb.y = b.y + b.h - h;
-		else if (dragEdges & SceneEditor::EDGE_BOTTOM)
-			nb.y = b.y;
-		else
-			nb.y = b.y + (b.h - h) * 0.5f;
-		SceneEditor::SetWorldBox(top, item, nb);
+		SceneEditor::SetWorldBox(
+			top, item, ResizedBox(startBox, dragEdges, dx, dy, event->modifiers() & Qt::ShiftModifier));
 		return;
 	}
 
@@ -691,6 +798,8 @@ void TileWidget::MouseRelease(QMouseEvent *event)
 	(void)event;
 	if (drag != Drag::None) {
 		drag = Drag::None;
+		multiDrag = false;
+		multiStart.clear();
 		if (dragMoved)
 			emit itemsChanged(this);
 	}
@@ -741,6 +850,22 @@ bool TileWidget::KeyPress(QKeyEvent *event)
 	if (!event->isAutoRepeat()) {
 		OBSSource scene = EditScene();
 		Undo::PushSceneState(obs_scene_from_source(scene));
+	}
+	/* Plusieurs sources sélectionnées : elles bougent toutes. */
+	OBSSource editScene = EditScene();
+	obs_scene_t *sc = editScene ? obs_scene_from_source(editScene) : nullptr;
+	if (const std::vector<int64_t> targets = MultiTargets(sc); !targets.empty()) {
+		for (int64_t id : targets) {
+			obs_sceneitem_t *it = SceneEditor::FindItem(sc, id);
+			Box b;
+			if (!it || !SceneEditor::GetWorldBox(sc, it, b))
+				continue;
+			b.x += dx;
+			b.y += dy;
+			SceneEditor::SetWorldBox(sc, it, b);
+		}
+		emit itemsChanged(this);
+		return true;
 	}
 	struct vec2 pos;
 	obs_sceneitem_get_pos(item, &pos);

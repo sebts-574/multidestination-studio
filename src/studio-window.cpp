@@ -43,6 +43,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDockWidget>
+#include <QElapsedTimer>
 #include <QFormLayout>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -84,6 +85,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <cstring>
 #include <functional>
 #include <map>
+#include <memory>
 
 /* ------------------------------------------------------------------ */
 /* Petits utilitaires d'interface                                       */
@@ -2174,6 +2176,7 @@ void StudioWindow::MoveSourceRows(QTreeWidgetItem *target, int position)
 					movedIds.contains(top->child(k)->data(0, Qt::UserRole).toLongLong()));
 		}
 	}
+	SyncMultiSelection();
 	AfterEdit();
 }
 
@@ -2548,8 +2551,23 @@ void StudioWindow::SelectItem(int64_t id)
 	RefreshSources();
 }
 
+/* Sélection multiple de la liste transmise à la tuile active (déplacement
+ * et redimensionnement de plusieurs sources dans l'aperçu). */
+void StudioWindow::SyncMultiSelection()
+{
+	std::vector<int64_t> ids;
+	for (QTreeWidgetItem *row : sourceList->selectedItems())
+		ids.push_back(row->data(0, Qt::UserRole).toLongLong());
+	TileWidget *active = ActiveTile();
+	for (TileGrid *grid : {pvwGrid, pgmGrid}) {
+		for (TileWidget *tile : grid->Tiles())
+			tile->SetMultiSelection(tile == active ? ids : std::vector<int64_t>());
+	}
+}
+
 void StudioWindow::UpdateMediaControls()
 {
+	SyncMultiSelection();
 	OBSSceneItem item = CurrentItem();
 	mediaControls->SetSource(item ? obs_sceneitem_get_source(item) : nullptr);
 }
@@ -3089,6 +3107,34 @@ void StudioWindow::EditPasteTransform()
 	AfterEdit();
 }
 
+/* Ctrl+Z (Cmd+Z) dans une fenêtre du studio, le temps de son existence. */
+class UndoKeyFilter : public QObject {
+public:
+	UndoKeyFilter(QWidget *window_, std::function<void()> fn_) : window(window_), fn(std::move(fn_))
+	{
+		qApp->installEventFilter(this);
+	}
+
+protected:
+	bool eventFilter(QObject *watched, QEvent *event) override
+	{
+		if (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress)
+			return false;
+		auto *w = qobject_cast<QWidget *>(watched);
+		auto *key = static_cast<QKeyEvent *>(event);
+		if (!w || w->window() != window || !key->matches(QKeySequence::Undo))
+			return false;
+		event->accept();
+		if (event->type() == QEvent::KeyPress)
+			fn();
+		return true;
+	}
+
+private:
+	QWidget *window;
+	std::function<void()> fn;
+};
+
 /* Rognage de la source, comme la partie « Rogner » de la fenêtre
  * « Modifier la transformation » d'OBS : gauche, haut, droite, bas en
  * pixels de la source, appliqué en direct ; Annuler remet le rognage
@@ -3138,12 +3184,47 @@ void StudioWindow::EditCrop()
 	root->addLayout(form);
 	dialog.resize(720, 640);
 
+	/* Historique pour Ctrl+Z (Cmd+Z) dans la fenêtre : un glisser ou une
+	 * saisie compte pour une étape. */
+	struct CropHistory {
+		std::vector<struct obs_sceneitem_crop> steps;
+		struct obs_sceneitem_crop last = {};
+		QElapsedTimer sinceChange;
+		bool restoring = false;
+		bool newStep = true;
+	};
+	auto history = std::make_shared<CropHistory>();
+	history->last = before;
+
 	obs_sceneitem_t *it = item;
-	auto apply = [it, left, top, right, bottom, preview]() {
+	auto apply = [it, left, top, right, bottom, preview, history]() {
 		struct obs_sceneitem_crop crop = {left->value(), top->value(), right->value(), bottom->value()};
+		if (!history->restoring) {
+			if (history->newStep || !history->sinceChange.isValid() || history->sinceChange.elapsed() > 600)
+				history->steps.push_back(history->last);
+			history->newStep = false;
+			history->sinceChange.restart();
+		}
+		history->last = crop;
 		obs_sceneitem_set_crop(it, &crop);
 		preview->SetCrop(crop);
 	};
+	auto undo = [left, top, right, bottom, history]() {
+		if (history->steps.empty())
+			return;
+		const struct obs_sceneitem_crop c = history->steps.back();
+		history->steps.pop_back();
+		history->restoring = true;
+		left->setValue(c.left);
+		top->setValue(c.top);
+		right->setValue(c.right);
+		bottom->setValue(c.bottom);
+		history->restoring = false;
+		history->newStep = true;
+	};
+	/* OBS déclare son Annuler pour toute l'application : la fenêtre le
+	 * prend pour elle, même dans un champ. */
+	UndoKeyFilter undoKeys(&dialog, undo);
 	preview->onChanged = [left, top, right, bottom](const struct obs_sceneitem_crop &crop) {
 		left->setValue(crop.left);
 		top->setValue(crop.top);

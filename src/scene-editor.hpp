@@ -18,6 +18,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #pragma once
 
+#include <vector>
+
 #include <obs.h>
 
 /* Géométrie des sources dans une scène, en pixels du canvas, sans rotation.
@@ -108,5 +110,10 @@ void RememberSizes(obs_scene_t *scene);
 /* Dessin de la sélection et des guides de centrage (thread graphique,
  * coordonnées canvas). */
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH);
+/* Sélection de plusieurs sources (ids : premier niveau ou dans un groupe). */
+void DrawMultiSelection(obs_scene_t *scene, const std::vector<int64_t> &ids, float screenScale, uint32_t canvasW,
+			uint32_t canvasH);
+/* Cadre à l'écran qui englobe toutes ces sources. */
+bool UnionWorldBox(obs_scene_t *top, const std::vector<int64_t> &ids, Box &box);
 
 } // namespace SceneEditor
