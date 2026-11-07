@@ -808,15 +808,16 @@ index 3a8274b..68b35a9 100644
  	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = Object.assign({}, ...parts.map((p) => p.presets))
 diff --git a/src/presets/multidestination.ts b/src/presets/multidestination.ts
 new file mode 100644
-index 0000000..0f8892c
+index 0000000..b7952cd
 --- /dev/null
 +++ b/src/presets/multidestination.ts
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,267 @@
 +import { CompanionPresetDefinitions, CompanionPresetSection } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import type { OBSInstanceTypes } from '../main.js'
 +import { baseStyle, styleActive, stylePreview, styleProgram } from './style.js'
 +import { groupVariableId } from '../multidestination.js'
++import { validName } from '../utils.js'
 +
 +/**
 + * Multidestination Studio presets: shown only when the OBS plugin answers its vendor requests. They
@@ -1043,6 +1044,26 @@ index 0000000..0f8892c
 +				feedbacks: [],
 +			}
 +			groupPresets.push(id)
++			// One button per source of the group: shows it (and hides the others), lit while shown.
++			for (const source of group.sources) {
++				const sourceId = `${id}_${validName(source)}`
++				presets[sourceId] = {
++					type: 'simple',
++					keywords: ['group', 'source', group.name, source],
++					name: `Group ${group.name}: show ${source}`,
++					style: baseStyle({ text: source }),
++					steps: [
++						{
++							down: [{ actionId: 'mdsGroup', options: { mode: 'select', group: group.name, source } }],
++							up: [],
++						},
++					],
++					feedbacks: [
++						{ feedbackId: 'mdsGroupSource', options: { group: group.name, source }, style: styleActive() },
++					],
++				}
++				groupPresets.push(sourceId)
++			}
 +		}
 +		definitions.push({ id: 'mds-groups', name: 'Group Source Selector', type: 'simple', presets: groupPresets })
 +	}
