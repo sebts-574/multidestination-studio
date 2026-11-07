@@ -134,6 +134,9 @@ private:
 	qint64 phaseStart = 0;
 	int phaseLength = 0;
 	OBSWeakSource media;
+	/* Gardé tant que son signal est branché (le gestionnaire de signaux
+	 * vit avec la source). */
+	OBSSource mediaHeld;
 	OBSSignal mediaEnded;
 	std::atomic<int> mediaGeneration{0};
 	bool mediaStarted = false;

@@ -233,6 +233,7 @@ void CueEngine::Advance()
 {
 	mediaGeneration++;
 	mediaEnded.Disconnect();
+	mediaHeld = nullptr;
 	media = nullptr;
 	runningStep++;
 	RunStep();
@@ -262,6 +263,7 @@ void CueEngine::WatchMedia(obs_source_t *scene)
 {
 	mediaGeneration++;
 	mediaEnded.Disconnect();
+	mediaHeld = nullptr;
 	media = nullptr;
 	mediaStarted = false;
 	struct Search {
@@ -315,6 +317,7 @@ void CueEngine::WatchMedia(obs_source_t *scene)
 	if (!search.best)
 		return;
 	media = OBSGetWeakRef(search.best.Get());
+	mediaHeld = search.best;
 	mediaEnded.Connect(obs_source_get_signal_handler(search.best), "media_ended", MediaEndedSignal, this);
 	/* Déjà en lecture (média partagé avec une autre scène) : compte comme
 	 * démarré. */
@@ -415,6 +418,7 @@ void CueEngine::Finish()
 	phase = PhaseNone;
 	mediaGeneration++;
 	mediaEnded.Disconnect();
+	mediaHeld = nullptr;
 	media = nullptr;
 	ticker.stop();
 	OBSSource program = Manager::Get().ProgramScene();
@@ -448,6 +452,7 @@ void CueEngine::Stop()
 	generation++;
 	mediaGeneration++;
 	mediaEnded.Disconnect();
+	mediaHeld = nullptr;
 	phase = PhaseNone;
 	media = nullptr;
 	ticker.stop();

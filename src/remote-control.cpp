@@ -487,7 +487,7 @@ void RemoteControl::Register()
 	});
 	/* Sources des groupes affichées ou cachées ailleurs (Studio, OBS) :
 	 * vérifié chaque seconde, l'état n'est envoyé que s'il a changé. */
-	auto *watch = new QTimer(&m);
+	auto *watch = new QTimer(qApp);
 	watch->setInterval(1000);
 	QObject::connect(watch, &QTimer::timeout, &m, []() {
 		if (!Manager::Get().Ready())
