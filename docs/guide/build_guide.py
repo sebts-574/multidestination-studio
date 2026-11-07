@@ -536,8 +536,7 @@ def build():
         ["Nudge", "Arrow keys move the selected source by one pixel (10 with Shift)."],
         ["Several sources", "Select them in the Sources dock (Ctrl + click or Shift + click), then drag one of them "
                             "in the tile to move them together, or drag a handle of their common frame to resize "
-                            "them together. When a group and one of its sources are both selected, the group is "
-                            "moved."],
+                            "them together."],
         ["Select", "Click a source in the tile: the highest source under the cursor is selected alone, also "
                    "inside a group; clicking inside a group but next to its sources selects the group. Ctrl + "
                    "click (Cmd + click on macOS) selects the whole group. In the Sources dock, Ctrl + click and "

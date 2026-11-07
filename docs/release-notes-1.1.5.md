@@ -26,7 +26,7 @@ Everything new since **1.1.0**. Windows, macOS and Linux · OBS Studio 31.1 or l
 
 ### Editing in the Preview
 - **Click selection**: a click selects the highest source under the cursor, also inside a group. A click in a group next to its sources selects the group. **Ctrl+click** (**Cmd+click** on macOS) selects the whole group.
-- **Several sources at once**: select them in the Sources dock, then drag one of them to move them together, drag a handle of their common frame to resize them together, or use the arrow keys. When a group and one of its sources are both selected, the group wins.
+- **Several sources at once**: select them in the Sources dock, then drag one of them to move them together, drag a handle of their common frame to resize them together, or use the arrow keys.
 - **Fit to screen keeps the proportions** of the source. Fit, Stretch, Center and Reset work for sources inside a group and apply to every selected source (also from the right-click menu in the Preview).
 - **Crop…** in the right-click menu of a source: a preview of the whole source with the cropped areas darkened, draggable edges, corners and frame, and the values in pixels. Ctrl+Z (Cmd+Z) undoes in the dialog.
 - **Copy / paste** keep the place on screen, also for sources inside a group. The right-click menu shows the paste shortcuts: Ctrl+V / Ctrl+Alt+V, Cmd+V / Cmd+Option+V on macOS (Ctrl+Shift+V stays Paste Transform, as in OBS).
