@@ -86,6 +86,8 @@ target_sources(
     src/display-helpers.hpp
     src/cues.cpp
     src/cues.hpp
+    src/crop-preview.cpp
+    src/crop-preview.hpp
     src/cues-dock.cpp
     src/cues-dock.hpp
     src/dock-style.cpp

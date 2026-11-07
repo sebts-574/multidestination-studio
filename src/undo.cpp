@@ -32,6 +32,8 @@ struct ItemState {
 	int64_t id = -1;
 	SceneEditor::Transform transform;
 	bool visible = true;
+	/* Groupe : ses sources (elles aussi déplaçables une à une). */
+	std::vector<ItemState> children;
 };
 
 enum class Kind { SceneState, Added, Removed };
@@ -67,6 +69,8 @@ std::vector<ItemState> Capture(obs_scene_t *scene)
 			st.id = obs_sceneitem_get_id(item);
 			st.transform = SceneEditor::GetTransform(item);
 			st.visible = obs_sceneitem_visible(item);
+			if (obs_sceneitem_is_group(item))
+				st.children = Capture(obs_sceneitem_group_get_scene(item));
 			list->push_back(st);
 			return true;
 		},
@@ -109,6 +113,20 @@ bool Apply(const Entry &e)
 			obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(scene, st.id);
 			if (!item)
 				continue;
+			/* Sources du groupe d'abord, puis le groupe lui-même (OBS
+			 * recalcule le cadre du groupe autour de ses sources). */
+			if (obs_sceneitem_is_group(item) && !st.children.empty()) {
+				obs_scene_t *inner = obs_sceneitem_group_get_scene(item);
+				obs_sceneitem_defer_group_resize_begin(item);
+				for (const auto &child : st.children) {
+					obs_sceneitem_t *c = obs_scene_find_sceneitem_by_id(inner, child.id);
+					if (!c)
+						continue;
+					SceneEditor::SetTransform(c, child.transform);
+					obs_sceneitem_set_visible(c, child.visible);
+				}
+				obs_sceneitem_defer_group_resize_end(item);
+			}
 			SceneEditor::SetTransform(item, st.transform);
 			obs_sceneitem_set_visible(item, st.visible);
 			obs_sceneitem_set_order_position(item, position++);

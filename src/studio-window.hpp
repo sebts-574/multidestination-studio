@@ -76,6 +76,8 @@ public:
 protected:
 	void closeEvent(QCloseEvent *event) override;
 	bool eventFilter(QObject *watched, QEvent *event) override;
+	void BringToFront();
+	void OpenOnStudio(const std::function<void()> &open);
 	void dragEnterEvent(QDragEnterEvent *event) override;
 	void dropEvent(QDropEvent *event) override;
 
@@ -129,6 +131,7 @@ private:
 	void EditCopyTransform();
 	void EditPasteTransform();
 	void EditResetTransform();
+	std::vector<OBSSceneItem> TransformTargets() const;
 	void EditCrop();
 	void EditFit();
 	void EditStretch();

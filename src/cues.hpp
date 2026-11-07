@@ -119,10 +119,6 @@ private:
 	bool firstCut = false;
 	OBSWeakSource firstTransition;
 	int firstDurationMs = -1;
-	OBSWeakSource programBefore;
-	/* Aperçu au lancement : rendu à l'ancien Program à la fin seulement si
-	 * personne ne l'a changé pendant la cue. */
-	OBSWeakSource previewAtGo;
 	/* Dernière scène de la dernière cue finie (« Arrêter » la ferme en
 	 * fondu tant qu'elle est à l'antenne). */
 	OBSWeakSource lastCueScene;

@@ -29,6 +29,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "blend-editor.hpp"
 #include "cues.hpp"
 #include "cues-dock.hpp"
+#include "crop-preview.hpp"
 #include "text.hpp"
 #include "tile-grid.hpp"
 #include "undo.hpp"
@@ -172,6 +173,22 @@ StudioWindow::StudioWindow(QWidget *parent) : QMainWindow(parent, Qt::Window)
 	setDockNestingEnabled(true);
 	setAcceptDrops(true);
 	qApp->installEventFilter(this);
+	TileWidget::openProperties = [this](obs_source_t *source) {
+		OBSSource src = source;
+		OpenOnStudio([src]() { obs_frontend_open_source_properties(src); });
+	};
+	/* OBS réactivé depuis une autre application (barre des tâches, Dock) :
+	 * le studio ouvert passe devant la fenêtre d'OBS. */
+	connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+		if (state != Qt::ApplicationActive || !isVisible())
+			return;
+		QTimer::singleShot(0, this, [this]() {
+			QWidget *active = QApplication::activeWindow();
+			if (!isMinimized() &&
+			    (!active || active == static_cast<QWidget *>(obs_frontend_get_main_window())))
+				BringToFront();
+		});
+	});
 
 	BuildCentral();
 	BuildDocks();
@@ -556,7 +573,7 @@ void StudioWindow::BuildDocks()
 	DockStyle::AddAction(sceneBar, "icon-filter", st->standardIcon(QStyle::SP_FileDialogContentsView),
 			     Tr("MDS.SceneFilters"), [this]() {
 				     if (OBSSource scene = SelectedScene())
-					     obs_frontend_open_source_filters(scene);
+					     OpenOnStudio([scene]() { obs_frontend_open_source_filters(scene); });
 			     });
 	DockStyle::AddAction(sceneBar, nullptr, DockStyle::FolderPlusIcon(), Tr("MDS.GroupInFolderTip"),
 			     [this]() { NewSceneFolder(); });
@@ -723,10 +740,11 @@ void StudioWindow::BuildDocks()
 	auto *transitionProps = ToolButton(QString(), Tr("MDS.TransitionProperties"), transitions);
 	transitionProps->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
 	SetIconClass(transitionProps, "icon-gear");
-	connect(transitionProps, &QToolButton::clicked, this, []() {
+	connect(transitionProps, &QToolButton::clicked, this, [this]() {
 		OBSSourceAutoRelease current = obs_frontend_get_current_transition();
-		if (current)
-			obs_frontend_open_source_properties(current);
+		OBSSource tr = current.Get();
+		if (tr)
+			OpenOnStudio([tr]() { obs_frontend_open_source_properties(tr); });
 	});
 	row->addWidget(transitionProps);
 	/* Supprimer : bouton d'OBS (avec sa confirmation). */
@@ -1163,6 +1181,7 @@ void StudioWindow::closeEvent(QCloseEvent *event)
 
 void StudioWindow::Shutdown()
 {
+	TileWidget::openProperties = nullptr;
 	for (auto &p : projectors) {
 		if (p.second)
 			p.second->close();
@@ -1362,15 +1381,13 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 					found = top->child(k);
 			}
 		}
-		/* Élément déjà dans la sélection (Ctrl/Maj) : on la garde. */
-		if (found && found->isSelected()) {
-			QTreeWidgetItem *current = sourceList->currentItem();
-			if (!current || (current != found && current->parent() != found))
-				sourceList->setCurrentItem(found, 0, QItemSelectionModel::NoUpdate);
-		} else {
-			sourceList->clearSelection();
-			if (found)
-				sourceList->setCurrentItem(found);
+		/* Un clic dans l'aperçu sélectionne cette source seule. */
+		sourceList->clearSelection();
+		if (found) {
+			if (found->parent())
+				found->parent()->setExpanded(true);
+			sourceList->setCurrentItem(found);
+			sourceList->scrollToItem(found);
 		}
 		UpdateMediaControls();
 	});
@@ -1468,6 +1485,33 @@ bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
 		}
 	}
 
+	/* Ctrl+Z (Cmd+Z) dans le studio : OBS déclare son Annuler pour toute
+	 * l'application ; avec celui du studio, Qt voyait deux raccourcis pour
+	 * la même touche et n'en lançait aucun. Le studio le prend pour lui, sauf
+	 * dans un champ de texte. */
+	if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) && isVisible()) {
+		auto *w = qobject_cast<QWidget *>(watched);
+		auto *key = static_cast<QKeyEvent *>(event);
+		const bool textInput = qobject_cast<QLineEdit *>(w) || qobject_cast<QAbstractSpinBox *>(w) ||
+				       (w && (w->inherits("QTextEdit") || w->inherits("QPlainTextEdit")));
+		if (w && w->window() == this && !textInput && key->matches(QKeySequence::Undo)) {
+			event->accept();
+			if (event->type() == QEvent::KeyPress)
+				EditUndo();
+			return true;
+		}
+	}
+
+	/* La fenêtre d'OBS revient (clic dans la barre des tâches / le Dock,
+	 * fenêtre restaurée) : le studio ouvert passe devant. */
+	if (event->type() == QEvent::WindowStateChange && isVisible() &&
+	    watched == static_cast<QObject *>(obs_frontend_get_main_window())) {
+		auto *change = static_cast<QWindowStateChangeEvent *>(event);
+		auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+		if ((change->oldState() & Qt::WindowMinimized) && !(main->windowState() & Qt::WindowMinimized))
+			QTimer::singleShot(0, this, &StudioWindow::BringToFront);
+	}
+
 	if (event->type() == QEvent::MouseButtonPress && isVisible()) {
 		auto *w = qobject_cast<QWidget *>(watched);
 		if (w && w->window() == this) {
@@ -1482,6 +1526,37 @@ bool StudioWindow::eventFilter(QObject *watched, QEvent *event)
 		}
 	}
 	return QMainWindow::eventFilter(watched, event);
+}
+
+void StudioWindow::BringToFront()
+{
+	if (!isVisible())
+		return;
+	if (isMinimized())
+		showNormal();
+	raise();
+	activateWindow();
+}
+
+/* Fenêtres d'OBS ouvertes depuis le studio (propriétés, filtres) : OBS les
+ * rattache à sa fenêtre principale, qui passait alors devant le studio. On
+ * les rattache au studio. */
+void StudioWindow::OpenOnStudio(const std::function<void()> &open)
+{
+	QWidget *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	const QWidgetList before = QApplication::topLevelWidgets();
+	open();
+	for (QWidget *w : QApplication::topLevelWidgets()) {
+		if (before.contains(w) || !w->isVisible() || w->parentWidget() != main || w->inherits("QMenu"))
+			continue;
+		const Qt::WindowFlags flags = w->windowFlags();
+		const QRect geometry = w->geometry();
+		w->setParent(this, flags);
+		w->setGeometry(geometry);
+		w->show();
+		w->raise();
+		w->activateWindow();
+	}
 }
 
 void StudioWindow::SetHighlight(bool on)
@@ -2522,7 +2597,8 @@ void StudioWindow::CreateNewSource(const char *typeId)
 	if (!source)
 		return;
 	AddExistingSource(source);
-	obs_frontend_open_source_properties(source);
+	OBSSource created = source.Get();
+	OpenOnStudio([created]() { obs_frontend_open_source_properties(created); });
 }
 
 void StudioWindow::AddFiles(const QStringList &paths, TileWidget *target)
@@ -3033,12 +3109,29 @@ void StudioWindow::EditCrop()
 	form->addRow(Tr("MDS.CropRight"), right);
 	form->addRow(Tr("MDS.CropTop"), top);
 	form->addRow(Tr("MDS.CropBottom"), bottom);
+
+	/* Aperçu de la source entière : poignées et cadre réglables à la
+	 * souris, comme les champs. */
+	auto *preview = new CropPreview(source, &dialog);
+	preview->SetCrop(before);
+	auto *hint = new QLabel(Tr("MDS.CropPreviewHint"), &dialog);
+	hint->setWordWrap(true);
+	root->addWidget(preview, 1);
+	root->addWidget(hint);
 	root->addLayout(form);
+	dialog.resize(720, 640);
 
 	obs_sceneitem_t *it = item;
-	auto apply = [it, left, top, right, bottom]() {
+	auto apply = [it, left, top, right, bottom, preview]() {
 		struct obs_sceneitem_crop crop = {left->value(), top->value(), right->value(), bottom->value()};
 		obs_sceneitem_set_crop(it, &crop);
+		preview->SetCrop(crop);
+	};
+	preview->onChanged = [left, top, right, bottom](const struct obs_sceneitem_crop &crop) {
+		left->setValue(crop.left);
+		top->setValue(crop.top);
+		right->setValue(crop.right);
+		bottom->setValue(crop.bottom);
 	};
 	for (QSpinBox *box : {left, top, right, bottom})
 		connect(box, &QSpinBox::valueChanged, &dialog, apply);
@@ -3061,39 +3154,61 @@ void StudioWindow::EditCrop()
 	AfterEdit();
 }
 
+/* Sources visées par les commandes de transformation : toutes celles
+ * sélectionnées dans la liste, sinon celle de l'aperçu. */
+std::vector<OBSSceneItem> StudioWindow::TransformTargets() const
+{
+	std::vector<OBSSceneItem> items;
+	if (sourceList->selectedItems().size() > 1) {
+		for (QTreeWidgetItem *row : sourceList->selectedItems()) {
+			if (OBSSceneItem it = ItemFromRow(row))
+				items.push_back(it);
+		}
+	}
+	if (items.empty()) {
+		if (OBSSceneItem item = CurrentItem())
+			items.push_back(item);
+	}
+	return items;
+}
+
 void StudioWindow::EditResetTransform()
 {
-	if (OBSSceneItem item = CurrentItem()) {
+	const auto items = TransformTargets();
+	if (!items.empty())
 		Undo::PushSceneState(ActiveScene());
+	for (auto &item : items)
 		SceneEditor::ResetTransform(item);
-	}
 	AfterEdit();
 }
 
 void StudioWindow::EditFit()
 {
-	if (OBSSceneItem item = CurrentItem()) {
+	const auto items = TransformTargets();
+	if (!items.empty())
 		Undo::PushSceneState(ActiveScene());
-		SceneEditor::FitToCanvas(item, activeDest->Width(), activeDest->Height());
-	}
+	for (auto &item : items)
+		SceneEditor::FitToCanvas(ActiveScene(), item, activeDest->Width(), activeDest->Height());
 	AfterEdit();
 }
 
 void StudioWindow::EditStretch()
 {
-	if (OBSSceneItem item = CurrentItem()) {
+	const auto items = TransformTargets();
+	if (!items.empty())
 		Undo::PushSceneState(ActiveScene());
-		SceneEditor::StretchToCanvas(item, activeDest->Width(), activeDest->Height());
-	}
+	for (auto &item : items)
+		SceneEditor::StretchToCanvas(ActiveScene(), item, activeDest->Width(), activeDest->Height());
 	AfterEdit();
 }
 
 void StudioWindow::EditCenter()
 {
-	if (OBSSceneItem item = CurrentItem()) {
+	const auto items = TransformTargets();
+	if (!items.empty())
 		Undo::PushSceneState(ActiveScene());
-		SceneEditor::CenterInCanvas(item, activeDest->Width(), activeDest->Height());
-	}
+	for (auto &item : items)
+		SceneEditor::CenterInCanvas(ActiveScene(), item, activeDest->Width(), activeDest->Height());
 	AfterEdit();
 }
 
@@ -3139,14 +3254,18 @@ void StudioWindow::EditMoveBottom()
 
 void StudioWindow::EditProperties()
 {
-	if (OBSSceneItem item = CurrentItem())
-		obs_frontend_open_source_properties(obs_sceneitem_get_source(item));
+	if (OBSSceneItem item = CurrentItem()) {
+		OBSSource source = obs_sceneitem_get_source(item);
+		OpenOnStudio([source]() { obs_frontend_open_source_properties(source); });
+	}
 }
 
 void StudioWindow::EditFilters()
 {
-	if (OBSSceneItem item = CurrentItem())
-		obs_frontend_open_source_filters(obs_sceneitem_get_source(item));
+	if (OBSSceneItem item = CurrentItem()) {
+		OBSSource source = obs_sceneitem_get_source(item);
+		OpenOnStudio([source]() { obs_frontend_open_source_filters(source); });
+	}
 }
 
 /* ------------------------------------------------------------------ */
@@ -3378,7 +3497,7 @@ void StudioWindow::FillQuickTransitionMenu(QMenu *menu, int index)
 	});
 	if (tr && obs_source_configurable(tr)) {
 		connect(menu->addAction(Tr("MDS.QuickTransitionProperties")), &QAction::triggered, this,
-			[tr]() { obs_frontend_open_source_properties(tr); });
+			[this, tr]() { OpenOnStudio([tr]() { obs_frontend_open_source_properties(tr); }); });
 	}
 	if (!tr || obs_transition_fixed(tr))
 		return;

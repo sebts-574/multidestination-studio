@@ -497,7 +497,11 @@ void TileWidget::MousePress(QMouseEvent *event)
 		}
 	}
 
-	const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load());
+	/* Clic : la source sous le curseur, même dans un groupe (à côté de ses
+	 * sources : le groupe). Ctrl+clic (Cmd+clic sur macOS) : le groupe
+	 * entier. */
+	const bool wholeGroup = event->modifiers() & Qt::ControlModifier;
+	const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load(), wholeGroup);
 	SetSelectedItem(id);
 	emit selectionChanged(this, id);
 
@@ -694,7 +698,11 @@ void TileWidget::MouseDoubleClick(QMouseEvent *event)
 	if (!editable.load())
 		return;
 	OBSSceneItem item = SelectedSceneItem();
-	if (item)
+	if (!item)
+		return;
+	if (openProperties)
+		openProperties(obs_sceneitem_get_source(item));
+	else
 		obs_frontend_open_source_properties(obs_sceneitem_get_source(item));
 }
 

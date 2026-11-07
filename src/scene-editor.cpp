@@ -335,22 +335,30 @@ void WorldScale(obs_scene_t *top, obs_sceneitem_t *item, float &sx, float &sy)
 	}
 }
 
-int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer)
+int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer, bool wholeGroup)
 {
-	/* Source sélectionnée (par exemple dans un groupe, choisie dans la
-	 * liste) : un clic dessus la garde, au lieu de prendre son groupe. */
+	/* Source déjà sélectionnée sous le curseur : un clic la garde (pour la
+	 * déplacer même si une autre la recouvre). */
 	if (prefer >= 0) {
 		obs_sceneitem_t *item = FindItem(scene, prefer);
+		obs_sceneitem_t *group = item ? ParentGroup(scene, item) : nullptr;
 		Box box;
-		if (item && obs_sceneitem_visible(item) && !obs_sceneitem_locked(item) &&
-		    GetWorldBox(scene, item, box) && box.Contains(x, y))
+		const bool usable =
+			item && obs_sceneitem_visible(item) && !obs_sceneitem_locked(item) &&
+			(!group || (!wholeGroup && obs_sceneitem_visible(group) && !obs_sceneitem_locked(group)));
+		if (usable && GetWorldBox(scene, item, box) && box.Contains(x, y))
 			return prefer;
 	}
 
+	/* Source la plus haute sous le curseur, y compris dans les groupes ;
+	 * dans un groupe, un clic à côté de ses sources (dans son cadre)
+	 * sélectionne le groupe. wholeGroup : toujours le groupe. */
 	struct Ctx {
+		obs_scene_t *top;
 		float x, y;
+		bool wholeGroup;
 		int64_t id;
-	} ctx{x, y, -1};
+	} ctx{scene, x, y, wholeGroup, -1};
 
 	/* L'énumération va du bas vers le haut : la dernière trouvée est la
 	 * plus haute. */
@@ -361,8 +369,31 @@ int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer)
 			if (!obs_sceneitem_visible(item) || obs_sceneitem_locked(item))
 				return true;
 			Box box;
-			if (GetBox(item, box) && box.Contains(c->x, c->y))
-				c->id = obs_sceneitem_get_id(item);
+			if (!GetBox(item, box) || !box.Contains(c->x, c->y))
+				return true;
+			const int64_t groupId = obs_sceneitem_get_id(item);
+			c->id = groupId;
+			if (!obs_sceneitem_is_group(item) || c->wholeGroup)
+				return true;
+			struct Inner {
+				obs_scene_t *top;
+				float x, y;
+				int64_t id;
+			} inner{c->top, c->x, c->y, -1};
+			obs_scene_enum_items(
+				obs_sceneitem_group_get_scene(item),
+				[](obs_scene_t *, obs_sceneitem_t *child, void *p) {
+					auto *in = static_cast<Inner *>(p);
+					if (!obs_sceneitem_visible(child) || obs_sceneitem_locked(child))
+						return true;
+					Box b;
+					if (GetWorldBox(in->top, child, b) && b.Contains(in->x, in->y))
+						in->id = obs_sceneitem_get_id(child);
+					return true;
+				},
+				&inner);
+			if (inner.id >= 0)
+				c->id = inner.id;
 			return true;
 		},
 		&ctx);
@@ -390,17 +421,17 @@ int HandleAt(const Box &box, float x, float y, float tol)
 	return edge;
 }
 
-void FitToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
+/* Les trois commandes travaillent en coordonnées de l'écran : une source
+ * d'un groupe remplit bien l'écran, pas le cadre du groupe. */
+void FitToCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
 {
-	if (UsesBounds(item)) {
-		SetBox(item, Box{0.0f, 0.0f, float(cw), float(ch)});
-		return;
-	}
 	if (IsPlaceholder(item)) {
-		/* Taille inconnue : cadre plein canvas, l'image s'y adaptera. */
-		SetBox(item, Box{0.0f, 0.0f, float(cw), float(ch)});
+		/* Taille inconnue : cadre plein écran, l'image s'y adaptera en
+		 * gardant ses proportions. */
+		SetWorldBox(top, item, Box{0.0f, 0.0f, float(cw), float(ch)});
 		return;
 	}
+	/* Proportions de la source (après rognage) gardées, centrée. */
 	float w = 0.0f;
 	float h = 0.0f;
 	if (!CroppedSourceSize(item, w, h))
@@ -408,22 +439,26 @@ void FitToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
 	const float s = std::fmin(float(cw) / w, float(ch) / h);
 	const float bw = w * s;
 	const float bh = h * s;
-	SetBox(item, Box{(float(cw) - bw) * 0.5f, (float(ch) - bh) * 0.5f, bw, bh});
+	if (UsesBounds(item) && obs_sceneitem_get_bounds_type(item) == OBS_BOUNDS_STRETCH)
+		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
+	SetWorldBox(top, item, Box{(float(cw) - bw) * 0.5f, (float(ch) - bh) * 0.5f, bw, bh});
 }
 
-void StretchToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
+void StretchToCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
 {
-	SetBox(item, Box{0.0f, 0.0f, float(cw), float(ch)});
+	if (UsesBounds(item))
+		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_STRETCH);
+	SetWorldBox(top, item, Box{0.0f, 0.0f, float(cw), float(ch)});
 }
 
-void CenterInCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
+void CenterInCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch)
 {
 	Box box;
-	if (!GetBox(item, box))
+	if (!GetWorldBox(top, item, box))
 		return;
 	box.x = (float(cw) - box.w) * 0.5f;
 	box.y = (float(ch) - box.h) * 0.5f;
-	SetBox(item, box);
+	SetWorldBox(top, item, box);
 }
 
 void ResetTransform(obs_sceneitem_t *item)

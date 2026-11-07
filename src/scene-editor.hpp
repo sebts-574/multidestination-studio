@@ -55,7 +55,9 @@ bool CroppedSourceSize(obs_sceneitem_t *item, float &w, float &h);
 /* Source visible la plus haute sous le point, -1 si aucune. prefer : une
  * source déjà sélectionnée (y compris dans un groupe) gardée si le point est
  * dessus. */
-int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer = -1);
+/* Source sous le point (la plus haute), y compris dans un groupe ; dans un
+ * groupe hors de ses sources : le groupe. wholeGroup : le groupe entier. */
+int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer = -1, bool wholeGroup = false);
 
 /* Élément par id, au premier niveau ou dans un groupe de la scène. */
 obs_sceneitem_t *FindItem(obs_scene_t *scene, int64_t id);
@@ -70,9 +72,10 @@ void WorldScale(obs_scene_t *top, obs_sceneitem_t *item, float &sx, float &sy);
 int HandleAt(const Box &box, float x, float y, float tolerance);
 
 /* Actions de menu. */
-void FitToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
-void StretchToCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
-void CenterInCanvas(obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
+/* top : scène affichée (la source peut être dans un de ses groupes). */
+void FitToCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
+void StretchToCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
+void CenterInCanvas(obs_scene_t *top, obs_sceneitem_t *item, uint32_t cw, uint32_t ch);
 void ResetTransform(obs_sceneitem_t *item);
 
 /* Transformation complète (position, échelle, rotation, cadre, recadrage)

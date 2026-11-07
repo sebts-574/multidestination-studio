@@ -18,6 +18,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #pragma once
 
+#include <functional>
+
 #include "scene-editor.hpp"
 
 #include <obs.hpp>
@@ -46,6 +48,9 @@ public:
 
 	Destination *Dest() const { return dest; }
 	bool IsProgram() const { return program; }
+	/* Ouverture des propriétés d'une source (double-clic), fournie par la
+	 * fenêtre du studio pour garder la fenêtre d'OBS derrière elle. */
+	static inline std::function<void(obs_source_t *)> openProperties;
 
 	/* Aperçu : scène de cette destination pour la scène sélectionnée. */
 	void SetLinkedScene(obs_source_t *scene);

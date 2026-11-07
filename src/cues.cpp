@@ -156,10 +156,6 @@ bool CueEngine::Go(const std::string &id, bool cut, obs_source_t *transition, in
 	firstCut = cut;
 	firstTransition = transition ? OBSGetWeakRef(transition) : OBSWeakSource();
 	firstDurationMs = durationMs;
-	OBSSource program = Manager::Get().ProgramScene();
-	programBefore = program ? OBSGetWeakRef(program.Get()) : OBSWeakSource();
-	OBSSource preview = Manager::Get().PreviewScene();
-	previewAtGo = preview ? OBSGetWeakRef(preview.Get()) : OBSWeakSource();
 	lastCueScene = nullptr;
 	armedId.clear();
 	obs_log(LOG_INFO, "cue « %s » lancée (%zu scène(s))", cue->name.c_str(), cue->steps.size());
@@ -423,15 +419,9 @@ void CueEngine::Finish()
 	ticker.stop();
 	OBSSource program = Manager::Get().ProgramScene();
 	lastCueScene = program ? OBSGetWeakRef(program.Get()) : OBSWeakSource();
-	/* Comme une prise normale : l'ancien Program revient en Aperçu, sauf si
-	 * l'Aperçu a été changé pendant la cue (on n'écrase pas le travail en
-	 * cours). */
-	OBSSource before = OBSGetStrongRef(programBefore);
-	OBSSource preview = Manager::Get().PreviewScene();
-	const bool previewUntouched = preview ? obs_weak_source_references_source(previewAtGo, preview)
-					      : !OBSGetStrongRef(previewAtGo);
-	if (Manager::Get().SwapAfterTake() && before && previewUntouched)
-		Manager::Get().SetPreviewScene(before);
+	/* Fin de cue : la dernière scène reste à l'antenne et l'Aperçu ne change
+	 * pas ; la suite (par exemple un fond) est à l'opérateur, ou dans la cue
+	 * elle-même. */
 	emit stateChanged();
 }
 
