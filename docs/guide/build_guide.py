@@ -494,6 +494,7 @@ def build():
             "or closes it. <b>Remove folder</b> keeps its scenes. Folders only organise the list: when a folder "
             "is selected, <b>Transition</b> and the quick transitions are disabled and a short note explains why.")]
     s += shot("The Scenes dock with a folder open.", 55, "scenes-dock.png")
+    s += shot("The Duplicate scene dialog: name of the copy and destinations.", 55, "duplicate-scene.png")
     s += [P("When a scene does not cover a destination", h2)]
     s += [P("By default every destination stays visible. When the selected scene does not cover a destination, "
             "its Preview tile is hatched, framed in red and marked <b>Not in this scene</b>; its Program keeps "
@@ -526,6 +527,10 @@ def build():
         "live; Cancel restores the previous crop.",
     ])
     s += shot("The Sources dock with a group, the eye and the lock.", 50, "sources-dock.png")
+    s += shot("Right-click on a source in a group: Move to group / Remove from group, Crop… and the paste "
+              "shortcuts.", 70, "source-menu.png")
+    s += shot("The Crop dialog: the whole source with the cropped areas darkened and the frame handles.", 75,
+              "crop-dialog.png")
     s += [P("Editing with the mouse", h2)]
     s += table([
         ["Action", "How"],
@@ -549,6 +554,8 @@ def build():
             "outlined in orange. Clicking elsewhere in the window clears the outlines. A video that is not "
             "playing keeps a frame at its real size and can be edited like any other source.")]
     s += shot("Editing a source in Preview: selection handles and centre guides.", 75, "shot10.png")
+    s += shot("Several sources selected: an outline on each and handles on their common frame.", 70,
+              "multi-selection.png")
     s += [P("Edit menu and shortcuts", h2)]
     s += table([
         ["Command", "Shortcut"],
@@ -655,6 +662,7 @@ def build():
         "Delete (Backspace on a Mac keyboard) deletes the selected cue.",
     ])
     s += shot("The Cues dock with a cue running.", 50, "cues-dock.png")
+    s += shot("A cue in Preview: the Preview title shows the cue name.", 45, "cue-preview.png")
     s += [P("Cues are saved with the scene collection. Double-click a cue to edit it; drag cues to reorder "
             "them.")]
 
@@ -756,6 +764,8 @@ def build():
         ["Group: show …", "One per source of each group: shows it and hides the others", "Lit while shown"],
     ], [35, 85, 45])
     s += shot("Companion: the Multidestination Studio presets.", 60, "companion-presets.png")
+    s += shot("Companion: the Group Source Selector buttons and the Running Cue Status button on a page.", 55,
+              "companion-groups.png")
     s += [P("The buttons follow the studio live, and new scenes, transitions and cues appear in the presets by "
             "themselves. The same features exist as actions and feedbacks named <b>Multidestination Studio - "
             "…</b>. The plugin also answers obs-websocket vendor requests (vendor <b>multidestination-studio</b>) "
