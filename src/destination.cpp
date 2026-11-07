@@ -492,6 +492,31 @@ void Destination::Take(obs_source_t *linkedScene, bool cut, obs_source_t *templ,
 	PurgeRetiredCopies();
 }
 
+void Destination::FadeToBlack(obs_source_t *templ, int durationMs)
+{
+	if (isMain)
+		return;
+	CreateTransitionFrom(templ);
+	if (!transition)
+		return;
+	/* Une transition déjà en cours ne peut pas être relancée : on coupe. */
+	if (durationMs <= 0 ||
+	    !obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, uint32_t(durationMs), nullptr)) {
+		obs_transition_force_stop(transition);
+		obs_transition_set(transition, nullptr);
+	}
+	OBSSource previous;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		programScene = OBSWeakSource();
+		previous = liveCopy;
+		liveCopy = nullptr;
+	}
+	if (previous)
+		retired.push_back(previous);
+	PurgeRetiredCopies();
+}
+
 void Destination::BeginManual(obs_source_t *linkedScene, obs_source_t *templ)
 {
 	if (isMain || !linkedScene)

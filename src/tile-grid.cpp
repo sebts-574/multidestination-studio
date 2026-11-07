@@ -446,7 +446,7 @@ OBSSceneItem TileWidget::SelectedSceneItem() const
 	obs_scene_t *s = scene ? obs_scene_from_source(scene) : nullptr;
 	if (!s)
 		return nullptr;
-	return obs_scene_find_sceneitem_by_id(s, id);
+	return SceneEditor::FindItem(s, id);
 }
 
 void TileWidget::MousePress(QMouseEvent *event)
@@ -467,7 +467,7 @@ void TileWidget::MousePress(QMouseEvent *event)
 	display->setFocus();
 
 	if (event->button() == Qt::RightButton) {
-		const int64_t id = SceneEditor::HitTest(sc, x, y);
+		const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load());
 		SetSelectedItem(id);
 		emit selectionChanged(this, id);
 		emit contextMenuRequested(this, event->globalPosition().toPoint());
@@ -484,7 +484,7 @@ void TileWidget::MousePress(QMouseEvent *event)
 	/* Poignées de la source déjà sélectionnée. */
 	OBSSceneItem item = SelectedSceneItem();
 	Box box;
-	if (item && SceneEditor::GetBox(item, box) && !SceneEditor::IsRotated(item)) {
+	if (item && SceneEditor::GetWorldBox(sc, item, box) && !SceneEditor::IsRotated(item)) {
 		const int edges = SceneEditor::HandleAt(box, x, y, tol);
 		if (edges != SceneEditor::EDGE_NONE) {
 			const bool alt = event->modifiers() & Qt::AltModifier;
@@ -492,20 +492,17 @@ void TileWidget::MousePress(QMouseEvent *event)
 			dragEdges = edges;
 			startBox = box;
 			obs_sceneitem_get_crop(item, &startCrop);
-			struct vec2 scale;
-			obs_sceneitem_get_scale(item, &scale);
-			startScaleX = std::fabs(scale.x);
-			startScaleY = std::fabs(scale.y);
+			SceneEditor::WorldScale(sc, item, startScaleX, startScaleY);
 			return;
 		}
 	}
 
-	const int64_t id = SceneEditor::HitTest(sc, x, y);
+	const int64_t id = SceneEditor::HitTest(sc, x, y, selectedId.load());
 	SetSelectedItem(id);
 	emit selectionChanged(this, id);
 
 	item = SelectedSceneItem();
-	if (item && SceneEditor::GetBox(item, startBox))
+	if (item && SceneEditor::GetWorldBox(sc, item, startBox))
 		drag = Drag::Move;
 }
 
@@ -524,7 +521,10 @@ void TileWidget::MouseMove(QMouseEvent *event)
 		/* Curseur selon la poignée survolée. */
 		Box box;
 		int edges = 0;
-		if (active.load() && item && SceneEditor::GetBox(item, box) && !SceneEditor::IsRotated(item))
+		OBSSource hoverScene = EditScene();
+		if (active.load() && item && hoverScene &&
+		    SceneEditor::GetWorldBox(obs_scene_from_source(hoverScene), item, box) &&
+		    !SceneEditor::IsRotated(item))
 			edges = SceneEditor::HandleAt(box, x, y, HANDLE_TOLERANCE_PX / s);
 		const bool lr = edges & (SceneEditor::EDGE_LEFT | SceneEditor::EDGE_RIGHT);
 		const bool tb = edges & (SceneEditor::EDGE_TOP | SceneEditor::EDGE_BOTTOM);
@@ -557,6 +557,8 @@ void TileWidget::MouseMove(QMouseEvent *event)
 		dragMoved = true;
 	}
 
+	OBSSource editSource = EditScene();
+	obs_scene_t *top = editSource ? obs_scene_from_source(editSource) : nullptr;
 	const float cw = float(dest->Width());
 	const float ch = float(dest->Height());
 	const bool noSnap = event->modifiers() & Qt::ControlModifier;
@@ -575,7 +577,7 @@ void TileWidget::MouseMove(QMouseEvent *event)
 			if (std::fabs(offY) <= tol)
 				b.y += offY;
 		}
-		SceneEditor::SetBox(item, b);
+		SceneEditor::SetWorldBox(top, item, b);
 		return;
 	}
 
@@ -630,7 +632,7 @@ void TileWidget::MouseMove(QMouseEvent *event)
 			nb.y = b.y;
 		else
 			nb.y = b.y + (b.h - h) * 0.5f;
-		SceneEditor::SetBox(item, nb);
+		SceneEditor::SetWorldBox(top, item, nb);
 		return;
 	}
 
@@ -672,7 +674,7 @@ void TileWidget::MouseMove(QMouseEvent *event)
 		}
 
 		obs_sceneitem_set_crop(item, &crop);
-		SceneEditor::SetBox(item, b);
+		SceneEditor::SetWorldBox(top, item, b);
 	}
 }
 

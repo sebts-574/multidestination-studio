@@ -39,6 +39,9 @@ namespace Dialogs {
 /* Nom et destinations couvertes d'une scène. isNew : scène qui vient d'être
  * créée (toutes les destinations cochées par défaut). */
 bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage, bool isNew);
+/* Dupliquer une scène : nom de la copie et destinations (celles de la scène
+ * d'origine cochées par défaut). */
+bool DuplicateScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage);
 
 struct DestinationSettings {
 	std::string name;

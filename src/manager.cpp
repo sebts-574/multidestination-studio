@@ -206,6 +206,70 @@ OBSSource Manager::CreateScene(const std::string &name, const std::set<Destinati
 	return source;
 }
 
+/* Recopie les éléments d'une scène dans une autre (vide) : mêmes sources (les
+ * groupes sont partagés, comme dans OBS), même placement, visibilité,
+ * rognage, mélange et filtrage. */
+static void CopySceneItems(obs_scene_t *from, obs_scene_t *to)
+{
+	std::vector<obs_sceneitem_t *> items;
+	obs_scene_enum_items(
+		from,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			static_cast<std::vector<obs_sceneitem_t *> *>(param)->push_back(item);
+			return true;
+		},
+		&items);
+	for (obs_sceneitem_t *item : items) {
+		obs_sceneitem_t *copy = obs_scene_add(to, obs_sceneitem_get_source(item));
+		if (!copy)
+			continue;
+		struct obs_transform_info info = {};
+		obs_sceneitem_get_info2(item, &info);
+		obs_sceneitem_set_info2(copy, &info);
+		struct obs_sceneitem_crop crop = {};
+		obs_sceneitem_get_crop(item, &crop);
+		obs_sceneitem_set_crop(copy, &crop);
+		obs_sceneitem_set_visible(copy, obs_sceneitem_visible(item));
+		obs_sceneitem_set_locked(copy, obs_sceneitem_locked(item));
+		obs_sceneitem_set_blending_method(copy, obs_sceneitem_get_blending_method(item));
+		obs_sceneitem_set_blending_mode(copy, obs_sceneitem_get_blending_mode(item));
+		obs_sceneitem_set_scale_filter(copy, obs_sceneitem_get_scale_filter(item));
+	}
+}
+
+OBSSource Manager::DuplicateScene(obs_source_t *original, const std::string &name,
+				  const std::set<Destination *> &coverage)
+{
+	obs_scene_t *from = obs_scene_from_source(original);
+	if (!from || name.empty())
+		return nullptr;
+	OBSSourceAutoRelease existing = obs_get_source_by_name(name.c_str());
+	if (existing)
+		return nullptr;
+
+	creatingScene = true;
+	obs_scene_t *scene = obs_scene_duplicate(from, name.c_str(), OBS_SCENE_DUP_REFS);
+	creatingScene = false;
+	if (!scene)
+		return nullptr;
+	OBSSource source = obs_scene_get_source(scene);
+	obs_scene_release(scene);
+
+	SetCoverage(source, coverage);
+	creatingScene = true;
+	for (auto &d : destinations) {
+		if (d->IsMain() || d->Disabled() || !coverage.count(d.get()))
+			continue;
+		OBSSource src = d->LinkedScene(original);
+		OBSSource dst = d->LinkedScene(source);
+		if (src && dst && src.Get() != dst.Get())
+			CopySceneItems(obs_scene_from_source(src), obs_scene_from_source(dst));
+	}
+	creatingScene = false;
+	emit scenesChanged();
+	return source;
+}
+
 void Manager::SetCoverage(obs_source_t *mainScene, const std::set<Destination *> &coverage)
 {
 	if (!mainScene)
@@ -319,8 +383,9 @@ void Manager::Take(bool cut, obs_source_t *transition, int durationMs)
 	OBSSource preview = PreviewScene();
 	if (!preview)
 		return;
-	if (takeInterceptor && takeInterceptor(cut))
+	if (takeInterceptor && takeInterceptor(cut, transition, durationMs))
 		return;
+	emit userTake();
 
 	OBSSource oldProgram = ProgramScene();
 	TakeScene(preview, cut, transition, durationMs);
@@ -338,8 +403,58 @@ void Manager::OnObsProgramChanged()
 	/* Un changement de scène fait dans OBS n'agit que sur la destination
 	 * par défaut ; on suit seulement le Program pour l'affichage. */
 	OBSSourceAutoRelease current = obs_frontend_get_current_scene();
-	if (current && !taking && !obs_weak_source_references_source(programScene, current))
+	if (current && blackScene && current.Get() == blackScene.Get()) {
+		emit programChanged();
+		return;
+	}
+	if (current && !taking && !obs_weak_source_references_source(programScene, current)) {
 		programScene = OBSGetWeakRef(current.Get());
+		emit userTake();
+	}
+	emit programChanged();
+}
+
+static OBSSource FrontendTransitionById(const char *id)
+{
+	OBSSource found;
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_transitions(&list);
+	for (size_t i = 0; i < list.sources.num && !found; i++) {
+		if (strcmp(obs_source_get_id(list.sources.array[i]), id) == 0)
+			found = list.sources.array[i];
+	}
+	obs_frontend_source_list_free(&list);
+	return found;
+}
+
+/* Fondu au noir : la destination par défaut passe à une scène vide (avec le
+ * fondu d'OBS), les autres font un fondu vers rien. L'Aperçu ne change pas. */
+void Manager::FadeToBlack(int durationMs)
+{
+	const int duration = durationMs >= 0 ? durationMs : obs_frontend_get_transition_duration();
+	/* Sans « Fondu » dans la liste d'OBS, les destinations supplémentaires
+	 * créent quand même un fondu (transition par défaut). */
+	OBSSource fade = FrontendTransitionById("fade_transition");
+	if (!blackScene) {
+		obs_scene_t *black = obs_scene_create_private("Multidestination Studio - black");
+		blackScene = obs_scene_get_source(black);
+		obs_scene_release(black);
+	}
+
+	taking = true;
+	for (auto &d : destinations) {
+		if (d->Locked() || d->Disabled())
+			continue;
+		if (d->IsMain()) {
+			/* La destination par défaut passe par la transition d'OBS : il
+			 * en faut une de sa liste. */
+			d->Take(blackScene, duration <= 0 || !fade, fade, duration);
+		} else {
+			d->FadeToBlack(fade, duration);
+		}
+	}
+	taking = false;
+	programScene = OBSWeakSource();
 	emit programChanged();
 }
 
@@ -398,6 +513,7 @@ void Manager::TBarMove(int position)
 		}
 		taking = false;
 		tbarActive = true;
+		emit userTake();
 	}
 	taking = true;
 	if (tbarMain)
@@ -604,6 +720,7 @@ void Manager::Reset()
 	programScene = nullptr;
 	sceneTree = nullptr;
 	quickTransitions.clear();
+	blackScene = nullptr;
 	CueEngine::Get().Reset();
 }
 

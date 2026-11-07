@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.0 - User Guide (PDF).
+"""Multidestination Studio 1.1.1 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.0 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.1 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.0")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.1")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.0 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.1 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -341,13 +341,13 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.0-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.1-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.0-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.1-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
-        ["Companion", "obs-studio-4.0.0-multidestination.1.tgz", "Optional: the Companion module (chapter 12)."],
+        ["Companion", "obs-studio-4.0.0-multidestination.2.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
     s += [P("Start OBS. A <b>Multidestination Studio</b> button appears in the OBS <b>Controls</b> dock, next to "
             "<b>Studio Mode</b>. The same command is in the <b>Tools</b> menu, and you can assign a hotkey to it "
@@ -484,6 +484,8 @@ def build():
         "<b>Rename</b>: F2 (Enter on macOS), or right-click → Rename.",
         "<b>Filters</b>: the filter button opens the OBS filters of the selected scene.",
         "<b>Remove</b>: press <b>Delete</b> or use the bin button; a confirmation is always shown.",
+        "<b>Duplicate</b>: right-click → <b>Duplicate…</b>, give a name and choose the destinations. The copy "
+        "has the same sources, placed the same way, in each checked destination that shows the original.",
     ])
     s += [P("Folders", h2)]
     s += [P("Folders keep long scene lists tidy. The folder button (or right-click → <b>New folder</b> / "
@@ -517,7 +519,11 @@ def build():
         "The <b>folder</b> button creates a folder (an OBS group) with the selected sources in it, ready to be "
         "renamed. <b>Edit → Group selected sources</b> (Ctrl+G) and <b>Ungroup</b> (Ctrl+Shift+G) do the same "
         "from the menu.",
-        "Drag sources into and out of groups. Selecting a source inside a group edits that source.",
+        "Drag sources into and out of groups, or right-click a source → <b>Move to group</b> / <b>Remove from "
+        "group</b>: the source keeps its place on screen. Selecting a source inside a group edits only that "
+        "source, also with the handles in the Preview.",
+        "Right-click a source → <b>Crop…</b> to set the crop in pixels (left, right, top, bottom), applied "
+        "live; Cancel restores the previous crop.",
     ])
     s += shot("The Sources dock with a group, the eye and the lock.", 50, "sources-dock.png")
     s += [P("Editing with the mouse", h2)]
@@ -541,7 +547,7 @@ def build():
         ["Command", "Shortcut"],
         ["Undo", "Ctrl+Z"],
         ["Copy / Paste (reference)", "Ctrl+C / Ctrl+V"],
-        ["Paste (duplicate): an independent copy, with its filters", "Ctrl+Alt+V"],
+        ["Paste (duplicate): an independent copy, with its filters", "Ctrl+Alt+V (Cmd+Option+V on macOS)"],
         ["Group selected sources / Ungroup", "Ctrl+G / Ctrl+Shift+G"],
         ["Remove (with confirmation)", "Delete or Backspace"],
         ["Copy / Paste transform", "Ctrl+Shift+C / Ctrl+Shift+V"],
@@ -614,24 +620,28 @@ def build():
         ["Column", "Meaning"],
         ["Scene", "The scene taken live at this step."],
         ["Pre-wait", "Delay before the scene goes live."],
-        ["Transition", "<b>Default</b> (the transition of the Scene transitions dock) or any OBS transition."],
+        ["Transition", "<b>Default</b> (the transition of the Scene transitions dock) or any OBS transition. "
+                       "The first scene has none of its own: it uses the transition that starts the cue."],
         ["Duration", "Follows the transition, as in the OBS dock: with Default, the default duration (not "
                      "editable); with Cut, greyed; with other transitions, editable (300 ms proposed)."],
-        ["Next at media end", "The next scene starts when the video or audio of this scene ends, instead of after "
-                              "the post-wait."],
+        ["Auto-follow", "The next scene starts as soon as the video or audio of this scene ends, instead of "
+                        "after the post-wait. The media is searched in every destination."],
         ["Post-wait", "Delay after the scene starts, before the next scene. It always lasts at least as long as "
                       "the transition."],
     ], [38, 127])
     s += shot("The cue editor.", 70, "cue-editor.png")
     s += [P("Running a cue", h2)]
     s += bullets([
-        "Click a cue: its first scene appears in Preview. Press <b>Transition</b> (or Cut) to run it; the scenes "
-        "then go live one after the other.",
-        "The <b>Run</b> button runs the selected cue directly; <b>Stop</b> stops the running cue.",
+        "Click a cue: the cue is in Preview (the Preview title shows its name, its first scene is displayed). "
+        "Press <b>Transition</b> or a <b>quick transition</b> to run it: its first scene uses that transition, "
+        "then the scenes go live one after the other.",
+        "The <b>Run</b> button runs the selected cue directly, with the default transition. <b>Stop</b> stops "
+        "the cue with a fade to black on every unlocked destination.",
         "The running cue opens and its current scene is marked ▶, with its status: the pre-wait or post-wait "
-        "countdown, or the media time (0:12 / 0:45).",
-        "Choosing another scene in the Scenes dock leaves the cue. Pressing Transition while a cue runs stops it "
-        "and takes the Preview as usual.",
+        "countdown, or the media time (0:12 / 0:45) with Auto-follow.",
+        "While a cue runs you can keep working: changing the Preview does not affect it. Putting a scene on air "
+        "yourself (Transition, quick transition, T-bar, OBS, Companion) stops the cue.",
+        "Delete (Backspace on a Mac keyboard) deletes the selected cue.",
     ])
     s += shot("The Cues dock with a cue running.", 50, "cues-dock.png")
     s += [P("Cues are saved with the scene collection. Double-click a cue to edit it; drag cues to reorder "
@@ -696,24 +706,24 @@ def build():
     # 12 ------------------------------------------------------------
     s += [PageBreak(), P("12. Companion and Stream Deck", h1)]
     s += [P("Multidestination Studio comes with a version of Bitfocus Companion's <b>OBS Studio</b> module, "
-            "<b>obs-studio-4.0.0-multidestination.1.tgz</b>, attached to every release. It is the full OBS "
+            "<b>obs-studio-4.0.0-multidestination.2.tgz</b>, attached to every release. It is the full OBS "
             "Studio module plus a <b>Multidestination Studio</b> preset section, so a Stream Deck can drive the "
             "studio.")]
     s += [P("Installing the module", h2)]
     s += steps([
         "In OBS: <b>Tools → WebSocket Server Settings</b>, tick <b>Enable WebSocket server</b>, and note the "
         "port, the IP address and the password (<b>Show Connect Info</b>).",
-        "Download <b>obs-studio-4.0.0-multidestination.1.tgz</b> from the release. Do not unzip or rename it.",
+        "Download <b>obs-studio-4.0.0-multidestination.2.tgz</b> from the release. Do not unzip or rename it.",
         "In Companion: <b>Modules → Import module package</b>, and choose the file. It is added as one more "
-        "version of the OBS Studio module, named <b>4.0.0-multidestination.1</b>.",
+        "version of the OBS Studio module, named <b>4.0.0-multidestination.2</b>.",
         "In <b>Connections</b>, add an OBS Studio connection with this version, or, if you already have one, "
-        "<b>change its module version</b> from the official version to <b>4.0.0-multidestination.1</b>. "
+        "<b>change its module version</b> from the official version to <b>4.0.0-multidestination.2</b>. "
         "Importing the module does not do this for you. Enter the address, port and password. The connection "
         "turns green.",
         "In <b>Buttons → Presets → OBS</b>, open <b>Multidestination Studio</b> and drag the buttons onto your "
         "pages.",
     ])
-    s += shot("Companion: the OBS Studio module with version 4.0.0-multidestination.1.", 55,
+    s += shot("Companion: the OBS Studio module with version 4.0.0-multidestination.2.", 55,
               "companion-module.png")
     s += [P("The buttons", h2)]
     s += table([
@@ -728,7 +738,10 @@ def build():
         ["Destinations Shown", "Toggles all destinations / only those of the selected scene", "Lit when on"],
         ["Cue to Preview", "Shows the cue in Preview; Transition then runs it (when Cues are on)",
          "Green in Preview, red while running"],
-        ["Stop Cue", "Stops the running cue", "—"],
+        ["Stop Cue", "Stops the running cue with a fade to black", "—"],
+        ["Running Cue Status", "Running cue, step and time left", "—"],
+        ["Group", "One per source group: shows the source shown; each press shows the next one", "—"],
+        ["Group: show …", "One per source of each group: shows it and hides the others", "Lit while shown"],
     ], [35, 85, 45])
     s += shot("Companion: the Multidestination Studio presets.", 60, "companion-presets.png")
     s += [P("The buttons follow the studio live, and new scenes, transitions and cues appear in the presets by "
@@ -737,7 +750,7 @@ def build():
             "for other control software. The full guide is in the project repository "
             "(docs/companion-module.md).")]
     s += callout("An existing OBS connection keeps the official version after the import: you must switch it "
-                 "to 4.0.0-multidestination.1 yourself, on every computer running Companion. In <b>Modules → OBS "
+                 "to 4.0.0-multidestination.2 yourself, on every computer running Companion. In <b>Modules → OBS "
                  "Studio</b>, the plug icon shows the version in use. Keep the connection on this version: an "
                  "official version removes the Multidestination Studio buttons.", "Important")
 
@@ -798,7 +811,7 @@ def build():
                                           "the screen is connected."],
         ["No Multidestination Studio section in Companion", "Most often the OBS connection still uses the "
                                                             "official version: set its module version to "
-                                                            "4.0.0-multidestination.1. Then check that it is green "
+                                                            "4.0.0-multidestination.2. Then check that it is green "
                                                             "and that OBS runs with the plugin."],
         ["Companion refuses the module", "Import the .tgz file itself (not a .zip); update Companion."],
         ["The interface is in the wrong language", "Configuration Settings → Language, then restart OBS."],

@@ -64,13 +64,19 @@ CueEngine::CueEngine()
 	});
 	/* Transition / Cut (boutons, raccourcis, Companion) : une cue armée
 	 * démarre ; une cue en cours s'arrête et la prise normale a lieu. */
-	m.takeInterceptor = [this](bool cut) {
+	m.takeInterceptor = [this](bool cut, obs_source_t *transition, int durationMs) {
 		if (Running())
 			Stop();
 		if (!Manager::Get().CuesEnabled() || armedId.empty())
 			return false;
-		return Go(armedId, cut);
+		return Go(armedId, cut, transition, durationMs);
 	};
+	/* Une scène passée à l'antenne à la main pendant la cue l'arrête ; les
+	 * changements d'Aperçu, eux, ne la touchent pas. */
+	connect(&m, &Manager::userTake, this, [this]() {
+		if (Running())
+			Stop();
+	});
 }
 
 void CueEngine::SetCues(const std::vector<Cue> &list)
@@ -139,7 +145,7 @@ void CueEngine::Schedule(int ms, std::function<void()> fn)
 	});
 }
 
-bool CueEngine::Go(const std::string &id, bool cut)
+bool CueEngine::Go(const std::string &id, bool cut, obs_source_t *transition, int durationMs)
 {
 	const Cue *cue = Find(id.empty() ? armedId : id);
 	if (!cue || cue->steps.empty())
@@ -148,8 +154,13 @@ bool CueEngine::Go(const std::string &id, bool cut)
 	runningId = cue->id;
 	runningStep = 0;
 	firstCut = cut;
+	firstTransition = transition ? OBSGetWeakRef(transition) : OBSWeakSource();
+	firstDurationMs = durationMs;
 	OBSSource program = Manager::Get().ProgramScene();
 	programBefore = program ? OBSGetWeakRef(program.Get()) : OBSWeakSource();
+	OBSSource preview = Manager::Get().PreviewScene();
+	previewAtGo = preview ? OBSGetWeakRef(preview.Get()) : OBSWeakSource();
+	lastCueScene = nullptr;
 	armedId.clear();
 	obs_log(LOG_INFO, "cue « %s » lancée (%zu scène(s))", cue->name.c_str(), cue->steps.size());
 	ticker.start();
@@ -180,13 +191,20 @@ void CueEngine::RunStep()
 		OBSSourceAutoRelease scene = obs_get_source_by_uuid(step.scene.c_str());
 		int busyMs = 0;
 		if (scene) {
-			bool cut = step.transition == "cut" || (runningStep == 0 && firstCut);
-			OBSSource transition = cut ? OBSSource() : Manager::FindTransition(step.transition);
+			/* Première scène : transition de ce qui a lancé la cue
+			 * (bouton Transition, transition rapide, lecture du dock). */
+			const bool first = runningStep == 0;
+			bool cut = first ? firstCut : step.transition == "cut";
+			OBSSource transition;
+			if (!cut)
+				transition = first ? OBSGetStrongRef(firstTransition)
+						   : Manager::FindTransition(step.transition);
 			OBSSourceAutoRelease current = obs_frontend_get_current_transition();
 			obs_source_t *used = transition ? transition.Get() : current.Get();
 			if (used && obs_transition_fixed(used))
 				cut = true;
-			const int duration = step.durationMs > 0 ? step.durationMs : -1;
+			const int duration = first ? (firstDurationMs > 0 ? firstDurationMs : -1)
+						   : (step.durationMs > 0 ? step.durationMs : -1);
 			Manager::Get().TakeScene(scene, cut, transition, duration);
 			if (!cut)
 				busyMs = duration > 0 ? duration : obs_frontend_get_transition_duration();
@@ -195,7 +213,8 @@ void CueEngine::RunStep()
 		 * scène est terminé (suivi dans Tick). */
 		if (step.nextOnMediaEnd && scene) {
 			WatchMedia(scene);
-			if (OBSGetStrongRef(media)) {
+			if (OBSSource m = OBSGetStrongRef(media)) {
+				obs_log(LOG_INFO, "cue : suivi du média « %s »", obs_source_get_name(m));
 				StartPhase(PhaseMedia, 0);
 				return;
 			}
@@ -212,14 +231,37 @@ void CueEngine::RunStep()
 
 void CueEngine::Advance()
 {
+	mediaGeneration++;
+	mediaEnded.Disconnect();
 	media = nullptr;
 	runningStep++;
 	RunStep();
 }
 
-/* Média le plus long de la scène (éléments visibles, groupes compris). */
+/* Fin du média signalée par OBS (thread du média) : traitée sur le thread de
+ * l'interface. Le suivi toutes les 250 ms (Tick) reste en secours. */
+void CueEngine::MediaEndedSignal(void *param, calldata_t *)
+{
+	auto *engine = static_cast<CueEngine *>(param);
+	const int gen = engine->mediaGeneration.load();
+	QMetaObject::invokeMethod(engine, [engine, gen]() { engine->OnMediaEnded(gen); }, Qt::QueuedConnection);
+}
+
+void CueEngine::OnMediaEnded(int gen)
+{
+	if (gen != mediaGeneration.load() || !Running() || phase != PhaseMedia)
+		return;
+	obs_log(LOG_INFO, "cue : fin du média, scène suivante");
+	Advance();
+}
+
+/* Média le plus long de la scène (éléments visibles, groupes compris), dans
+ * la scène de chaque destination : un média placé seulement dans une
+ * destination supplémentaire est trouvé aussi. */
 void CueEngine::WatchMedia(obs_source_t *scene)
 {
+	mediaGeneration++;
+	mediaEnded.Disconnect();
 	media = nullptr;
 	mediaStarted = false;
 	struct Search {
@@ -259,9 +301,25 @@ void CueEngine::WatchMedia(obs_source_t *scene)
 		}
 		return true;
 	};
-	obs_scene_enum_items(obs_scene_from_source(scene), visit, &search);
-	if (search.best)
-		media = OBSGetWeakRef(search.best.Get());
+	std::vector<OBSSource> scenes{OBSSource(scene)};
+	for (Destination *d : Manager::Get().Destinations()) {
+		if (d->Locked())
+			continue;
+		if (OBSSource linked = d->LinkedScene(scene); linked && linked.Get() != scene)
+			scenes.push_back(linked);
+	}
+	for (auto &sc : scenes) {
+		if (obs_scene_t *s = obs_scene_from_source(sc))
+			obs_scene_enum_items(s, visit, &search);
+	}
+	if (!search.best)
+		return;
+	media = OBSGetWeakRef(search.best.Get());
+	mediaEnded.Connect(obs_source_get_signal_handler(search.best), "media_ended", MediaEndedSignal, this);
+	/* Déjà en lecture (média partagé avec une autre scène) : compte comme
+	 * démarré. */
+	const obs_media_state state = obs_source_media_get_state(search.best);
+	mediaStarted = state == OBS_MEDIA_STATE_PLAYING || state == OBS_MEDIA_STATE_BUFFERING;
 }
 
 void CueEngine::Tick()
@@ -288,6 +346,43 @@ void CueEngine::Tick()
 		}
 	}
 	emit progressChanged();
+}
+
+const char *CueEngine::PhaseName() const
+{
+	if (!Running())
+		return "";
+	switch (phase) {
+	case PhasePreWait:
+		return "pre_wait";
+	case PhasePostWait:
+		return "post_wait";
+	case PhaseMedia:
+		return "media";
+	default:
+		return "";
+	}
+}
+
+qint64 CueEngine::RemainingMs() const
+{
+	if (!Running())
+		return 0;
+	if (phase == PhaseMedia) {
+		int64_t t = 0, d = 0;
+		return MediaTimes(t, d) ? std::max<int64_t>(0, d - t) : 0;
+	}
+	return std::max<qint64>(0, phaseLength - (NowMs() - phaseStart));
+}
+
+bool CueEngine::MediaTimes(int64_t &time, int64_t &duration) const
+{
+	OBSSource src = phase == PhaseMedia ? OBSGetStrongRef(media) : OBSSource();
+	if (!src)
+		return false;
+	time = obs_source_media_get_time(src);
+	duration = obs_source_media_get_duration(src);
+	return true;
 }
 
 QString CueEngine::StatusText() const
@@ -318,18 +413,41 @@ void CueEngine::Finish()
 	runningId.clear();
 	runningStep = -1;
 	phase = PhaseNone;
+	mediaGeneration++;
+	mediaEnded.Disconnect();
 	media = nullptr;
 	ticker.stop();
-	/* Comme une prise normale : l'ancien Program revient en Aperçu. */
+	OBSSource program = Manager::Get().ProgramScene();
+	lastCueScene = program ? OBSGetWeakRef(program.Get()) : OBSWeakSource();
+	/* Comme une prise normale : l'ancien Program revient en Aperçu, sauf si
+	 * l'Aperçu a été changé pendant la cue (on n'écrase pas le travail en
+	 * cours). */
 	OBSSource before = OBSGetStrongRef(programBefore);
-	if (Manager::Get().SwapAfterTake() && before)
+	OBSSource preview = Manager::Get().PreviewScene();
+	const bool previewUntouched = preview ? obs_weak_source_references_source(previewAtGo, preview)
+					      : !OBSGetStrongRef(previewAtGo);
+	if (Manager::Get().SwapAfterTake() && before && previewUntouched)
 		Manager::Get().SetPreviewScene(before);
 	emit stateChanged();
+}
+
+void CueEngine::StopWithFade()
+{
+	OBSSource program = Manager::Get().ProgramScene();
+	const bool lastOnAir = program && obs_weak_source_references_source(lastCueScene, program);
+	if (!Running() && !lastOnAir)
+		return;
+	Stop();
+	lastCueScene = nullptr;
+	obs_log(LOG_INFO, "cue arrêtée : fondu au noir");
+	Manager::Get().FadeToBlack();
 }
 
 void CueEngine::Stop()
 {
 	generation++;
+	mediaGeneration++;
+	mediaEnded.Disconnect();
 	phase = PhaseNone;
 	media = nullptr;
 	ticker.stop();

@@ -103,10 +103,12 @@ QString ScreenLabel(QScreen *screen, int index)
 		.arg(int(g.height() * ratio));
 }
 
-bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage, bool isNew)
+static bool SceneDialog(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage,
+			bool isNew, bool duplicate)
 {
 	QDialog dialog(parent);
-	dialog.setWindowTitle(isNew ? Tr("MDS.NewScene") : Tr("MDS.SceneSettings"));
+	dialog.setWindowTitle(duplicate ? Tr("MDS.DuplicateSceneTitle")
+					: (isNew ? Tr("MDS.NewScene") : Tr("MDS.SceneSettings")));
 	dialog.setMinimumWidth(380);
 	auto *layout = new QVBoxLayout(&dialog);
 
@@ -129,7 +131,11 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 	}
 	layout->addWidget(group);
 
-	if (!isNew) {
+	if (duplicate) {
+		auto *note = new QLabel(Tr("MDS.DuplicateSceneNote"), &dialog);
+		note->setWordWrap(true);
+		layout->addWidget(note);
+	} else if (!isNew) {
 		auto *note = new QLabel(Tr("MDS.UncheckWarning"), &dialog);
 		note->setWordWrap(true);
 		layout->addWidget(note);
@@ -150,6 +156,16 @@ bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set
 			coverage.insert(d);
 	}
 	return !name.empty();
+}
+
+bool EditScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage, bool isNew)
+{
+	return SceneDialog(parent, scene, name, coverage, isNew, false);
+}
+
+bool DuplicateScene(QWidget *parent, obs_source_t *scene, std::string &name, std::set<Destination *> &coverage)
+{
+	return SceneDialog(parent, scene, name, coverage, false, true);
 }
 
 QComboBox *ScreenCombo(const std::string &current, QWidget *parent)

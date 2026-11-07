@@ -84,12 +84,14 @@ QString StepText(size_t index, const CueStep &step)
 	const QString after = step.nextOnMediaEnd
 				      ? Tr("MDS.CueMediaEndShort")
 				      : QString("%1 %2").arg(Tr("MDS.CuePostWaitShort")).arg(Seconds(step.postWaitMs));
+	/* Première scène : transition de ce qui lance la cue. */
+	const QString transition = index == 0 ? Tr("MDS.CueFirstTransitionShort") : TransitionLabel(step);
 	return QString("%1. %2   ·   %3 %4 · %5 · %6")
 		.arg(index + 1)
 		.arg(SceneNameOf(step.scene))
 		.arg(Tr("MDS.CuePreWaitShort"))
 		.arg(Seconds(step.preWaitMs))
-		.arg(TransitionLabel(step))
+		.arg(transition)
 		.arg(after);
 }
 
@@ -287,6 +289,16 @@ private:
 			UpdateDurationField(tr, dur);
 			connect(tr, &QComboBox::currentIndexChanged, dur,
 				[tr, dur]() { UpdateDurationField(tr, dur); });
+			/* Première scène : pas de transition propre. Elle suit ce qui
+			 * lance la cue (Transition, transition rapide, lecture). */
+			if (i == 0) {
+				tr->clear();
+				tr->addItem(Tr("MDS.CueFirstTransition"), QString());
+				tr->setEnabled(false);
+				tr->setToolTip(Tr("MDS.CueFirstTransitionTip"));
+				dur->setEnabled(false);
+				dur->setToolTip(Tr("MDS.CueFirstTransitionTip"));
+			}
 
 			/* Fin du média -> scène suivante (remplace le post-délai). */
 			auto *mediaCell = new QWidget(table);
@@ -356,6 +368,15 @@ CuesPanel::CuesPanel(QWidget *parent) : QWidget(parent)
 		if (!id.empty() && id != CueEngine::Get().ArmedId())
 			CueEngine::Get().Arm(id);
 	});
+	/* Clic sur la cue déjà sélectionnée (l'Aperçu a changé entre-temps) :
+	 * elle repasse en Aperçu. */
+	connect(tree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *) {
+		if (refreshing || !Manager::Get().CuesEnabled())
+			return;
+		const std::string id = CurrentCueId();
+		if (!id.empty() && id != CueEngine::Get().ArmedId())
+			CueEngine::Get().Arm(id);
+	});
 	connect(tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *) { EditCue(CurrentCueId()); });
 	connect(tree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
 		QMenu menu(this);
@@ -373,7 +394,7 @@ CuesPanel::CuesPanel(QWidget *parent) : QWidget(parent)
 		if (CueEngine::Get().Running()) {
 			menu.addSeparator();
 			connect(menu.addAction(Tr("MDS.CueStop")), &QAction::triggered, this,
-				[]() { CueEngine::Get().Stop(); });
+				[]() { CueEngine::Get().StopWithFade(); });
 		}
 		menu.exec(tree->viewport()->mapToGlobal(pos));
 	});
@@ -396,7 +417,7 @@ CuesPanel::CuesPanel(QWidget *parent) : QWidget(parent)
 			CueEngine::Get().Go(id, false);
 	});
 	DockStyle::AddAction(bar, "icon-media-stop", st->standardIcon(QStyle::SP_MediaStop), Tr("MDS.CueStop"),
-			     []() { CueEngine::Get().Stop(); });
+			     []() { CueEngine::Get().StopWithFade(); });
 	bar->addSeparator();
 	DockStyle::AddAction(bar, "icon-up", st->standardIcon(QStyle::SP_ArrowUp), Tr("MDS.MoveUp"),
 			     [this]() { MoveCue(-1); });

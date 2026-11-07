@@ -53,6 +53,12 @@ public:
 	static std::vector<OBSSource> MainScenes();
 	OBSSource CreateScene(const std::string &name, const std::set<Destination *> &coverage);
 	void SetCoverage(obs_source_t *mainScene, const std::set<Destination *> &coverage);
+	/* Copie complète d'une scène commune : même contenu dans chaque
+	 * destination choisie qui affichait déjà la scène d'origine (scène vide
+	 * pour les autres). Les sources sont partagées, comme « Dupliquer » dans
+	 * OBS. */
+	OBSSource DuplicateScene(obs_source_t *original, const std::string &name,
+				 const std::set<Destination *> &coverage);
 	void RenameScene(obs_source_t *mainScene, const std::string &name);
 	void RemoveScene(obs_source_t *mainScene);
 	void Sync();
@@ -80,8 +86,12 @@ public:
 	 * OBS, par exemple depuis Companion). */
 	void TakeScene(obs_source_t *mainScene, bool cut, obs_source_t *transition = nullptr, int durationMs = -1,
 		       bool skipMain = false);
-	/* Appelé avant Take : renvoie true s'il a pris la main (cue armée). */
-	std::function<bool(bool cut)> takeInterceptor;
+	/* Appelé avant Take : renvoie true s'il a pris la main (cue armée). La
+	 * transition et la durée sont celles de la prise (transition rapide). */
+	std::function<bool(bool cut, obs_source_t *transition, int durationMs)> takeInterceptor;
+	/* Fondu au noir de toutes les destinations non verrouillées (arrêt
+	 * d'une cue). durationMs < 0 : durée d'OBS. */
+	void FadeToBlack(int durationMs = -1);
 	void OnObsProgramChanged();
 
 	/* --- Transitions rapides (barre entre Aperçu et Programme) --- */
@@ -156,6 +166,10 @@ signals:
 	void programChanged();
 	void settingsChanged();
 	void quickTransitionsChanged();
+	/* Une prise faite par l'utilisateur (Transition, Cut, transition
+	 * rapide, barre T, scène changée dans OBS ou par Companion) : une cue
+	 * en cours s'arrête. */
+	void userTake();
 
 private:
 	Manager();
@@ -181,6 +195,8 @@ private:
 	bool tbarMain = false;
 	OBSWeakSource tbarScene;
 	OBSWeakSource tbarOldProgram;
+	/* Scène vide (privée) du fondu au noir de la destination par défaut. */
+	OBSSource blackScene;
 
 	void LoadSettings();
 	void AdoptOrphanCanvases();

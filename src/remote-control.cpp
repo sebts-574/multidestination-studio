@@ -25,10 +25,12 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QMetaObject>
 #include <QThread>
 #include <QTimer>
 
+#include <algorithm>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -70,6 +72,9 @@ void Ok(obs_data_t *response)
 {
 	obs_data_set_bool(response, "ok", true);
 }
+
+obs_data_array_t *GroupsState();
+void EmitStateChanged();
 
 const char *SceneName(const OBSSource &s)
 {
@@ -115,6 +120,18 @@ void GetState(obs_data_t *, obs_data_t *response, void *)
 			obs_data_array_push_back(cues, item);
 		}
 		obs_data_set_array(response, "cues", cues);
+		/* Avancement de la cue en cours (retour pendant la lecture d'un
+		 * média, temps restant d'une attente). */
+		obs_data_set_int(response, "cueStep", engine.Running() ? engine.RunningStep() + 1 : 0);
+		obs_data_set_int(response, "cueSteps", running ? int64_t(running->steps.size()) : 0);
+		obs_data_set_string(response, "cuePhase", engine.PhaseName());
+		obs_data_set_int(response, "cueRemaining", engine.RemainingMs());
+		int64_t mediaTime = 0, mediaDuration = 0;
+		engine.MediaTimes(mediaTime, mediaDuration);
+		obs_data_set_int(response, "cueMediaTime", mediaTime);
+		obs_data_set_int(response, "cueMediaDuration", mediaDuration);
+		OBSDataArrayAutoRelease groups = GroupsState();
+		obs_data_set_array(response, "groups", groups);
 		Ok(response);
 	});
 }
@@ -147,6 +164,8 @@ void SetProgramScene(obs_data_t *request, obs_data_t *response, void *)
 		OBSSource transition;
 		int duration = -1;
 		ReadTransition(request, transition, duration);
+		/* Prise faite par l'utilisateur : une cue en cours s'arrête. */
+		emit Manager::Get().userTake();
 		Manager::Get().TakeScene(scene, obs_data_get_bool(request, "cut"), transition, duration);
 		Ok(response);
 	});
@@ -197,7 +216,11 @@ void GoCue(obs_data_t *request, obs_data_t *response, void *)
 			return Fail(response, "cues are disabled");
 		const Cue *cue = FindCue(request);
 		const std::string id = cue ? cue->id : std::string();
-		if (!CueEngine::Get().Go(id, obs_data_get_bool(request, "cut")))
+		/* Transition de la première scène (comme une transition rapide). */
+		OBSSource transition;
+		int duration = -1;
+		ReadTransition(request, transition, duration);
+		if (!CueEngine::Get().Go(id, obs_data_get_bool(request, "cut"), transition, duration))
 			return Fail(response, "no cue to run");
 		Ok(response);
 	});
@@ -206,8 +229,163 @@ void GoCue(obs_data_t *request, obs_data_t *response, void *)
 void StopCue(obs_data_t *, obs_data_t *response, void *)
 {
 	OnUi([response]() {
-		CueEngine::Get().Stop();
+		CueEngine::Get().StopWithFade();
 		Ok(response);
+	});
+}
+
+/* ---- Sélecteur de groupes ----
+ * Un groupe = un nom : les groupes de même nom (le même groupe référencé
+ * dans plusieurs scènes, ou un groupe recréé à l'identique dans une autre
+ * destination) sont pilotés ensemble, leurs sources étant reconnues par
+ * leur nom. Afficher une source cache les autres sources du groupe. */
+
+/* Tous les groupes des scènes communes et des scènes des destinations. */
+std::vector<obs_sceneitem_t *> AllGroupItems()
+{
+	std::vector<obs_source_t *> scenes;
+	for (auto &s : Manager::MainScenes()) {
+		scenes.push_back(s);
+		for (Destination *d : Manager::Get().Destinations()) {
+			if (OBSSource linked = d->LinkedScene(s); linked && linked.Get() != s.Get())
+				scenes.push_back(linked);
+		}
+	}
+	std::vector<obs_sceneitem_t *> groups;
+	std::vector<obs_source_t *> seen;
+	for (obs_source_t *sc : scenes) {
+		obs_scene_t *scene = obs_scene_from_source(sc);
+		if (!scene)
+			continue;
+		struct Ctx {
+			std::vector<obs_sceneitem_t *> *groups;
+			std::vector<obs_source_t *> *seen;
+		} ctx{&groups, &seen};
+		obs_scene_enum_items(
+			scene,
+			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+				auto *c = static_cast<Ctx *>(param);
+				obs_source_t *src = obs_sceneitem_get_source(item);
+				if (!obs_sceneitem_is_group(item) ||
+				    std::find(c->seen->begin(), c->seen->end(), src) != c->seen->end())
+					return true;
+				c->seen->push_back(src);
+				c->groups->push_back(item);
+				return true;
+			},
+			&ctx);
+	}
+	return groups;
+}
+
+/* Sources d'un groupe, du haut vers le bas (comme la liste des sources). */
+std::vector<obs_sceneitem_t *> GroupChildren(obs_sceneitem_t *group)
+{
+	std::vector<obs_sceneitem_t *> children;
+	obs_scene_enum_items(
+		obs_sceneitem_group_get_scene(group),
+		[](obs_scene_t *, obs_sceneitem_t *child, void *param) {
+			auto *list = static_cast<std::vector<obs_sceneitem_t *> *>(param);
+			list->insert(list->begin(), child);
+			return true;
+		},
+		&children);
+	return children;
+}
+
+const char *ItemName(obs_sceneitem_t *item)
+{
+	const char *n = obs_source_get_name(obs_sceneitem_get_source(item));
+	return n ? n : "";
+}
+
+obs_data_array_t *GroupsState()
+{
+	obs_data_array_t *list = obs_data_array_create();
+	std::vector<std::string> names;
+	for (obs_sceneitem_t *group : AllGroupItems()) {
+		const std::string name = ItemName(group);
+		if (std::find(names.begin(), names.end(), name) != names.end())
+			continue;
+		names.push_back(name);
+		OBSDataAutoRelease item = obs_data_create();
+		obs_data_set_string(item, "groupName", name.c_str());
+		OBSDataArrayAutoRelease sources = obs_data_array_create();
+		std::string current;
+		for (obs_sceneitem_t *child : GroupChildren(group)) {
+			OBSDataAutoRelease src = obs_data_create();
+			obs_data_set_string(src, "sourceName", ItemName(child));
+			obs_data_set_bool(src, "visible", obs_sceneitem_visible(child));
+			obs_data_array_push_back(sources, src);
+			if (current.empty() && obs_sceneitem_visible(child))
+				current = ItemName(child);
+		}
+		obs_data_set_array(item, "sources", sources);
+		obs_data_set_string(item, "current", current.c_str());
+		obs_data_array_push_back(list, item);
+	}
+	return list;
+}
+
+/* Affiche la source « sourceName » dans tous les groupes « groupName » et
+ * cache les autres. */
+bool ShowInGroup(const std::string &groupName, const std::string &sourceName)
+{
+	bool found = false;
+	for (obs_sceneitem_t *group : AllGroupItems()) {
+		if (groupName != ItemName(group))
+			continue;
+		for (obs_sceneitem_t *child : GroupChildren(group)) {
+			const bool show = sourceName == ItemName(child);
+			found = found || show;
+			if (obs_sceneitem_visible(child) != show)
+				obs_sceneitem_set_visible(child, show);
+		}
+	}
+	return found;
+}
+
+void SelectGroupSource(obs_data_t *request, obs_data_t *response, void *)
+{
+	OnUi([request, response]() {
+		const std::string group = obs_data_get_string(request, "groupName");
+		const std::string source = obs_data_get_string(request, "sourceName");
+		if (!ShowInGroup(group, source))
+			return Fail(response, "group or source not found");
+		EmitStateChanged();
+		Ok(response);
+	});
+}
+
+/* Source suivante du groupe (après la première visible ; retour au début
+ * après la dernière). {"direction": -1} pour la précédente. */
+void CycleGroup(obs_data_t *request, obs_data_t *response, void *)
+{
+	OnUi([request, response]() {
+		const std::string groupName = obs_data_get_string(request, "groupName");
+		const int direction = obs_data_get_int(request, "direction") < 0 ? -1 : 1;
+		for (obs_sceneitem_t *group : AllGroupItems()) {
+			if (groupName != ItemName(group))
+				continue;
+			const auto children = GroupChildren(group);
+			if (children.empty())
+				return Fail(response, "group is empty");
+			int current = -1;
+			for (size_t i = 0; i < children.size(); i++) {
+				if (obs_sceneitem_visible(children[i])) {
+					current = int(i);
+					break;
+				}
+			}
+			const int n = int(children.size());
+			const int next = current < 0 ? (direction > 0 ? 0 : n - 1) : (current + direction + n) % n;
+			const std::string name = ItemName(children[size_t(next)]);
+			ShowInGroup(groupName, name);
+			obs_data_set_string(response, "current", name.c_str());
+			EmitStateChanged();
+			return Ok(response);
+		}
+		Fail(response, "group not found");
 	});
 }
 
@@ -282,6 +460,8 @@ void RemoteControl::Register()
 		{"StopCue", StopCue},
 		{"SetAfterTransition", SetAfterTransition},
 		{"SetDestinationsShown", SetDestinationsShown},
+		{"CycleGroup", CycleGroup},
+		{"SelectGroupSource", SelectGroupSource},
 	};
 	for (const auto &r : requests)
 		obs_websocket_vendor_register_request(vendor, r.first, r.second, nullptr);
@@ -296,5 +476,32 @@ void RemoteControl::Register()
 		QObject::connect(&m, signal, &m, []() { EmitStateChanged(); });
 	for (auto signal : {&CueEngine::cuesChanged, &CueEngine::stateChanged})
 		QObject::connect(&CueEngine::Get(), signal, &m, []() { EmitStateChanged(); });
+	/* Avancement d'une cue : au plus deux fois par seconde. */
+	QObject::connect(&CueEngine::Get(), &CueEngine::progressChanged, &m, []() {
+		static qint64 last = 0;
+		const qint64 now = QDateTime::currentMSecsSinceEpoch();
+		if (now - last < 500)
+			return;
+		last = now;
+		EmitStateChanged();
+	});
+	/* Sources des groupes affichées ou cachées ailleurs (Studio, OBS) :
+	 * vérifié chaque seconde, l'état n'est envoyé que s'il a changé. */
+	auto *watch = new QTimer(&m);
+	watch->setInterval(1000);
+	QObject::connect(watch, &QTimer::timeout, &m, []() {
+		if (!Manager::Get().Ready())
+			return;
+		static std::string previous;
+		OBSDataAutoRelease holder = obs_data_create();
+		OBSDataArrayAutoRelease groups = GroupsState();
+		obs_data_set_array(holder, "groups", groups);
+		const std::string json = obs_data_get_json(holder);
+		if (json != previous) {
+			previous = json;
+			EmitStateChanged();
+		}
+	});
+	watch->start();
 	obs_log(LOG_INFO, "pilotage obs-websocket prêt (fournisseur « multidestination-studio »)");
 }

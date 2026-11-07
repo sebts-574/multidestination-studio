@@ -66,6 +66,7 @@ public:
 	void Shutdown();
 
 	/* Demande les destinations d'une scène créée dans OBS. */
+	void DuplicateScene(obs_source_t *scene);
 	void AskCoverage(obs_source_t *scene);
 	void RefreshTransitions();
 
@@ -128,6 +129,7 @@ private:
 	void EditCopyTransform();
 	void EditPasteTransform();
 	void EditResetTransform();
+	void EditCrop();
 	void EditFit();
 	void EditStretch();
 	void EditCenter();
@@ -246,6 +248,11 @@ private:
 	OBSWeakSource clipboardSource;
 	SceneEditor::Transform clipboardTransform;
 	bool hasClipboardTransform = false;
+	SceneEditor::Box clipboardBox;
+	bool hasClipboardBox = false;
+	void ApplyClipboardTransform(obs_scene_t *scene, obs_sceneitem_t *item);
 	SceneEditor::Transform copiedTransform;
 	bool hasCopiedTransform = false;
+	SceneEditor::Box copiedBox;
+	bool hasCopiedBox = false;
 };

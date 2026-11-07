@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QDragLeaveEvent>
 #include <QDropEvent>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -201,9 +202,17 @@ protected:
 				}
 			}
 		}
-		const bool modifiers = event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier);
+		const bool modifiers = RealModifiers(event->modifiers()) & (Qt::ShiftModifier | Qt::ControlModifier);
 		setDragEnabled(item && !modifiers);
 		pressed = event->button() == Qt::LeftButton;
+		if (const Qt::KeyboardModifiers real = RealModifiers(event->modifiers()); real != event->modifiers()) {
+			QMouseEvent copy(event->type(), event->position(), event->scenePosition(),
+					 event->globalPosition(), event->button(), event->buttons(), real,
+					 event->pointingDevice());
+			QTreeWidget::mousePressEvent(&copy);
+			event->setAccepted(copy.isAccepted());
+			return;
+		}
 		QTreeWidget::mousePressEvent(event);
 	}
 
@@ -219,6 +228,47 @@ protected:
 		QTreeWidget::startDrag(actions);
 		/* Le glisser a consommé le relâchement du bouton. */
 		Released();
+	}
+
+	/* Suppr / Retour arrière vont à la liste, avant les raccourcis de la
+	 * fenêtre ou du menu (sur macOS, le menu les prenait : Suppr dans les
+	 * cues demandait de supprimer une source). */
+	bool event(QEvent *event) override
+	{
+		if (event->type() == QEvent::ShortcutOverride && onDelete &&
+		    state() != QAbstractItemView::EditingState) {
+			auto *key = static_cast<QKeyEvent *>(event);
+			if ((key->key() == Qt::Key_Delete || key->key() == Qt::Key_Backspace) &&
+			    !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+				event->accept();
+				return true;
+			}
+		}
+		return QTreeWidget::event(event);
+	}
+
+	/* Ctrl / Maj d'après l'état réel du clavier : un modificateur resté
+	 * « collé » (vu sur macOS après un raccourci ou un changement
+	 * d'application) faisait une sélection multiple sur un simple clic. */
+	static Qt::KeyboardModifiers RealModifiers(Qt::KeyboardModifiers reported)
+	{
+		return reported & QGuiApplication::queryKeyboardModifiers();
+	}
+
+	QItemSelectionModel::SelectionFlags selectionCommand(const QModelIndex &index,
+							     const QEvent *event = nullptr) const override
+	{
+		if (event && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseMove ||
+			      event->type() == QEvent::MouseButtonRelease)) {
+			const auto *me = static_cast<const QMouseEvent *>(event);
+			const Qt::KeyboardModifiers real = RealModifiers(me->modifiers());
+			if (real != me->modifiers()) {
+				QMouseEvent copy(me->type(), me->position(), me->scenePosition(), me->globalPosition(),
+						 me->button(), me->buttons(), real, me->pointingDevice());
+				return QTreeWidget::selectionCommand(index, &copy);
+			}
+		}
+		return QTreeWidget::selectionCommand(index, event);
 	}
 
 	void keyPressEvent(QKeyEvent *event) override

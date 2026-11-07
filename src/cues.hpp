@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <atomic>
 #include <functional>
 #include <string>
 #include <vector>
@@ -67,14 +68,25 @@ public:
 	void Disarm();
 	const std::string &ArmedId() const { return armedId; }
 
-	/* Lance une cue (la cue armée si id est vide). */
-	bool Go(const std::string &id, bool cut);
+	/* Lance une cue (la cue armée si id est vide). La première scène part
+	 * avec la transition de ce qui a lancé la cue : transition (nullptr =
+	 * celle d'OBS) et durée (< 0 = celle d'OBS) ; ses propres réglages de
+	 * transition ne servent pas. */
+	bool Go(const std::string &id, bool cut, obs_source_t *transition = nullptr, int durationMs = -1);
+	/* Arrête la cue sans rien changer à l'antenne. */
 	void Stop();
+	/* Bouton « Arrêter la cue » : arrêt avec un fondu au noir. */
+	void StopWithFade();
 	bool Running() const { return !runningId.empty(); }
 	const std::string &RunningId() const { return runningId; }
 	int RunningStep() const { return runningStep; }
 	/* État de l'étape en cours (attente, média : temps écoulé / durée). */
 	QString StatusText() const;
+	/* Pour Companion : phase ("pre_wait", "post_wait", "media", ""), temps
+	 * restant et, pour un média, position et durée (ms). */
+	const char *PhaseName() const;
+	qint64 RemainingMs() const;
+	bool MediaTimes(int64_t &time, int64_t &duration) const;
 
 	void Save(obs_data_t *data) const;
 	void Load(obs_data_t *data);
@@ -93,6 +105,8 @@ private:
 	void Schedule(int ms, std::function<void()> fn);
 	void StartPhase(int phase, int ms);
 	void WatchMedia(obs_source_t *scene);
+	void OnMediaEnded(int gen);
+	static void MediaEndedSignal(void *param, calldata_t *data);
 	void Tick();
 	void Advance();
 
@@ -103,7 +117,15 @@ private:
 	std::string runningId;
 	int runningStep = -1;
 	bool firstCut = false;
+	OBSWeakSource firstTransition;
+	int firstDurationMs = -1;
 	OBSWeakSource programBefore;
+	/* Aperçu au lancement : rendu à l'ancien Program à la fin seulement si
+	 * personne ne l'a changé pendant la cue. */
+	OBSWeakSource previewAtGo;
+	/* Dernière scène de la dernière cue finie (« Arrêter » la ferme en
+	 * fondu tant qu'elle est à l'antenne). */
+	OBSWeakSource lastCueScene;
 	int generation = 0;
 
 	/* Suivi de l'étape en cours. */
@@ -112,6 +134,8 @@ private:
 	qint64 phaseStart = 0;
 	int phaseLength = 0;
 	OBSWeakSource media;
+	OBSSignal mediaEnded;
+	std::atomic<int> mediaGeneration{0};
 	bool mediaStarted = false;
 	QTimer ticker;
 };

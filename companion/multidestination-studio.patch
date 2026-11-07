@@ -54,6 +54,341 @@ index 148054e..7a9545b 100644
  ## Advanced WebSocket features
  
  ### Custom – Send Command
+diff --git a/src/__tests__/__snapshots__/option-shape.test.ts.snap b/src/__tests__/__snapshots__/option-shape.test.ts.snap
+index 1dc4ea7..60f5ebc 100644
+--- a/src/__tests__/__snapshots__/option-shape.test.ts.snap
++++ b/src/__tests__/__snapshots__/option-shape.test.ts.snap
+@@ -132,6 +132,221 @@ exports[`option shape > action options are unchanged 1`] = `
+     },
+   ],
+   "do_transition": [],
++  "mdsAfterTransition": [
++    {
++      "choices": [
++        {
++          "id": "toggle",
++          "label": "Toggle",
++        },
++        {
++          "id": "on",
++          "label": "On",
++        },
++        {
++          "id": "off",
++          "label": "Off",
++        },
++      ],
++      "default": "toggle",
++      "disableAutoExpression": true,
++      "id": "mode",
++      "label": "Mode",
++      "type": "dropdown",
++    },
++  ],
++  "mdsCue": [
++    {
++      "choices": [
++        {
++          "id": "preview",
++          "label": "Cue to Preview",
++        },
++        {
++          "id": "go",
++          "label": "Run Cue",
++        },
++        {
++          "id": "stop",
++          "label": "Stop Cue (fade to black)",
++        },
++      ],
++      "default": "preview",
++      "disableAutoExpression": true,
++      "id": "mode",
++      "label": "Mode",
++      "type": "dropdown",
++    },
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cue 1",
++          "label": "Cue 1",
++        },
++      ],
++      "default": "Cue 1",
++      "id": "cue",
++      "isVisibleExpression": "$(options:mode) != 'stop'",
++      "label": "Cue",
++      "type": "dropdown",
++    },
++  ],
++  "mdsDestinationsShown": [
++    {
++      "choices": [
++        {
++          "id": "toggle",
++          "label": "Toggle",
++        },
++        {
++          "id": "on",
++          "label": "On",
++        },
++        {
++          "id": "off",
++          "label": "Off",
++        },
++      ],
++      "default": "toggle",
++      "disableAutoExpression": true,
++      "id": "mode",
++      "label": "Mode",
++      "type": "dropdown",
++    },
++  ],
++  "mdsGroup": [
++    {
++      "choices": [
++        {
++          "id": "next",
++          "label": "Next source",
++        },
++        {
++          "id": "previous",
++          "label": "Previous source",
++        },
++        {
++          "id": "select",
++          "label": "Chosen source",
++        },
++      ],
++      "default": "next",
++      "disableAutoExpression": true,
++      "id": "mode",
++      "label": "Mode",
++      "type": "dropdown",
++    },
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cameras",
++          "label": "Cameras",
++        },
++      ],
++      "default": "Cameras",
++      "id": "group",
++      "label": "Group",
++      "type": "dropdown",
++    },
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cam 1",
++          "label": "Cam 1",
++        },
++        {
++          "id": "Cam 2",
++          "label": "Cam 2",
++        },
++      ],
++      "default": "Cam 1",
++      "id": "source",
++      "isVisibleExpression": "$(options:mode) == 'select'",
++      "label": "Source",
++      "type": "dropdown",
++    },
++  ],
++  "mdsPreviewScene": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Scene A",
++          "label": "Scene A",
++        },
++        {
++          "id": "Scene B",
++          "label": "Scene B",
++        },
++      ],
++      "default": "Scene A",
++      "id": "scene",
++      "label": "Scene",
++      "type": "dropdown",
++    },
++  ],
++  "mdsProgramScene": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Scene A",
++          "label": "Scene A",
++        },
++        {
++          "id": "Scene B",
++          "label": "Scene B",
++        },
++      ],
++      "default": "Scene A",
++      "id": "scene",
++      "label": "Scene",
++      "type": "dropdown",
++    },
++  ],
++  "mdsTransition": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "",
++          "label": "Current transition",
++        },
++        {
++          "id": "Fade",
++          "label": "Fade",
++        },
++        {
++          "id": "Cut",
++          "label": "Cut",
++        },
++      ],
++      "default": "",
++      "id": "transition",
++      "label": "Transition",
++      "type": "dropdown",
++    },
++    {
++      "default": false,
++      "disableAutoExpression": true,
++      "id": "customDuration",
++      "label": "Custom Duration",
++      "type": "checkbox",
++    },
++    {
++      "clampValues": true,
++      "default": 300,
++      "id": "duration",
++      "isVisibleExpression": "$(options:customDuration)",
++      "label": "Transition time (in ms)",
++      "max": 20000,
++      "min": 0,
++      "type": "number",
++    },
++  ],
+   "media_control": [
+     {
+       "choices": [
+@@ -2397,6 +2612,108 @@ exports[`option shape > feedback options are unchanged 1`] = `
+       "type": "number",
+     },
+   ],
++  "mdsAfterTransition": [],
++  "mdsCue": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cue 1",
++          "label": "Cue 1",
++        },
++      ],
++      "default": "Cue 1",
++      "id": "cue",
++      "label": "Cue",
++      "type": "dropdown",
++    },
++    {
++      "choices": [
++        {
++          "id": "preview",
++          "label": "In Preview",
++        },
++        {
++          "id": "running",
++          "label": "Running",
++        },
++      ],
++      "default": "preview",
++      "disableAutoExpression": true,
++      "id": "state",
++      "label": "State",
++      "type": "dropdown",
++    },
++  ],
++  "mdsDestinationsShown": [],
++  "mdsGroupSource": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cameras",
++          "label": "Cameras",
++        },
++      ],
++      "default": "Cameras",
++      "id": "group",
++      "label": "Group",
++      "type": "dropdown",
++    },
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Cam 1",
++          "label": "Cam 1",
++        },
++        {
++          "id": "Cam 2",
++          "label": "Cam 2",
++        },
++      ],
++      "default": "Cam 1",
++      "id": "source",
++      "label": "Source",
++      "type": "dropdown",
++    },
++  ],
++  "mdsScene": [
++    {
++      "allowCustom": true,
++      "choices": [
++        {
++          "id": "Scene A",
++          "label": "Scene A",
++        },
++        {
++          "id": "Scene B",
++          "label": "Scene B",
++        },
++      ],
++      "default": "Scene A",
++      "id": "scene",
++      "label": "Scene",
++      "type": "dropdown",
++    },
++    {
++      "choices": [
++        {
++          "id": "program",
++          "label": "Program",
++        },
++        {
++          "id": "preview",
++          "label": "Preview",
++        },
++      ],
++      "default": "program",
++      "disableAutoExpression": true,
++      "id": "state",
++      "label": "State",
++      "type": "dropdown",
++    },
++  ],
+   "mediaProgress": [
+     {
+       "allowCustom": true,
 diff --git a/src/__tests__/mock/instance.ts b/src/__tests__/mock/instance.ts
 index e4215f8..174d85c 100644
 --- a/src/__tests__/mock/instance.ts
@@ -125,10 +460,10 @@ index a18a179..ef094fa 100644
  }
 diff --git a/src/actions/multidestination.ts b/src/actions/multidestination.ts
 new file mode 100644
-index 0000000..e9b9c2c
+index 0000000..ef04645
 --- /dev/null
 +++ b/src/actions/multidestination.ts
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,197 @@
 +import { CompanionActionDefinitions, type CompanionInputFieldDropdown, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import { multidestinationRequest } from '../multidestination.js'
@@ -207,10 +542,7 @@ index 0000000..e9b9c2c
 +			options: [
 +				mdsDropdown('transition', 'Transition', ['', ...state.transitions], {
 +					default: '',
-+					choices: [
-+						{ id: '', label: 'Current transition' },
-+						...state.transitions.map((t) => ({ id: t, label: t })),
-+					],
++					choices: [{ id: '', label: 'Current transition' }, ...state.transitions.map((t) => ({ id: t, label: t }))],
 +				}),
 +				{
 +					type: 'checkbox',
@@ -240,7 +572,8 @@ index 0000000..e9b9c2c
 +
 +		mdsAfterTransition: {
 +			name: 'Multidestination Studio - After a Transition',
-+			description: 'On: the previous Program returns to Preview after a transition. Off: the scene taken stays in Preview',
++			description:
++				'On: the previous Program returns to Preview after a transition. Off: the scene taken stays in Preview',
 +			options: [TOGGLE_MODE],
 +			callback: async (action) => {
 +				await multidestinationRequest(self, 'SetAfterTransition', toggleData(action.options.mode))
@@ -308,12 +641,9 @@ index 0000000..e9b9c2c
 +					'Group',
 +					state.groups.map((g) => g.name),
 +				),
-+				mdsDropdown(
-+					'source',
-+					'Source',
-+					[...new Set(state.groups.flatMap((g) => g.sources))],
-+					{ isVisibleExpression: `$(options:mode) == 'select'` },
-+				),
++				mdsDropdown('source', 'Source', [...new Set(state.groups.flatMap((g) => g.sources))], {
++					isVisibleExpression: `$(options:mode) == 'select'`,
++				}),
 +			],
 +			callback: async (action) => {
 +				if (action.options.mode === 'select') {
@@ -354,21 +684,18 @@ index dc4fa36..8a74f44 100644
  					// Fail connection if OBS capabilities could not be fetched.
  					throw new Error('could not get OBS info')
 diff --git a/src/feedbacks.ts b/src/feedbacks.ts
-index bdd7a0e..1000aa6 100644
+index bdd7a0e..b9a65e7 100644
 --- a/src/feedbacks.ts
 +++ b/src/feedbacks.ts
-@@ -8,6 +8,10 @@ import { getSceneFeedbacks, type SceneFeedbackSchemas } from './feedbacks/scenes
+@@ -8,6 +8,7 @@ import { getSceneFeedbacks, type SceneFeedbackSchemas } from './feedbacks/scenes
  import { getSourceFeedbacks, type SourceFeedbackSchemas } from './feedbacks/sources.js'
  import { getTransitionFeedbacks, type TransitionFeedbackSchemas } from './feedbacks/transitions.js'
  import { getUiConfigCustomFeedbacks, type UiConfigCustomFeedbackSchemas } from './feedbacks/ui-config-custom.js'
-+import {
-+	getMultidestinationFeedbacks,
-+	type MultidestinationFeedbackSchemas,
-+} from './feedbacks/multidestination.js'
++import { getMultidestinationFeedbacks, type MultidestinationFeedbackSchemas } from './feedbacks/multidestination.js'
  
  /** The full set of feedback schemas, used as `InstanceTypes['feedbacks']`. */
  export type OBSFeedbackSchemas = AudioFeedbackSchemas &
-@@ -16,7 +20,8 @@ export type OBSFeedbackSchemas = AudioFeedbackSchemas &
+@@ -16,7 +17,8 @@ export type OBSFeedbackSchemas = AudioFeedbackSchemas &
  	SceneFeedbackSchemas &
  	SourceFeedbackSchemas &
  	TransitionFeedbackSchemas &
@@ -378,7 +705,7 @@ index bdd7a0e..1000aa6 100644
  
  /** Every feedback id the module defines. */
  export type OBSFeedbackId = Extract<keyof OBSFeedbackSchemas, string>
-@@ -30,5 +35,6 @@ export function getFeedbacks(this: OBSInstance): CompanionFeedbackDefinitions<OB
+@@ -30,5 +32,6 @@ export function getFeedbacks(this: OBSInstance): CompanionFeedbackDefinitions<OB
  		...getSourceFeedbacks(this),
  		...getTransitionFeedbacks(this),
  		...getUiConfigCustomFeedbacks(this),
@@ -387,10 +714,10 @@ index bdd7a0e..1000aa6 100644
  }
 diff --git a/src/feedbacks/multidestination.ts b/src/feedbacks/multidestination.ts
 new file mode 100644
-index 0000000..dc28a9b
+index 0000000..265f8d2
 --- /dev/null
 +++ b/src/feedbacks/multidestination.ts
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,109 @@
 +import { CompanionFeedbackDefinitions } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import { styleActive, stylePreview, styleProgram } from '../presets/style.js'
@@ -447,7 +774,8 @@ index 0000000..dc28a9b
 +		mdsDestinationsShown: {
 +			type: 'boolean',
 +			name: 'Multidestination Studio - All Destinations Shown',
-+			description: 'If every destination is shown (not only those of the selected scene), change the style of the button',
++			description:
++				'If every destination is shown (not only those of the selected scene), change the style of the button',
 +			defaultStyle: styleActive(),
 +			options: [],
 +			callback: () => self.multidestination.available && self.multidestination.showAllDestinations,
@@ -474,9 +802,7 @@ index 0000000..dc28a9b
 +			],
 +			callback: (feedback) => {
 +				const current =
-+					feedback.options.state === 'running'
-+						? self.multidestination.runningCue
-+						: self.multidestination.previewCue
++					feedback.options.state === 'running' ? self.multidestination.runningCue : self.multidestination.previewCue
 +				return self.multidestination.available && current === feedback.options.cue
 +			},
 +		},
@@ -560,10 +886,10 @@ index 6658168..8484ede 100644
  
 diff --git a/src/multidestination.ts b/src/multidestination.ts
 new file mode 100644
-index 0000000..e984d97
+index 0000000..f558a8d
 --- /dev/null
 +++ b/src/multidestination.ts
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,220 @@
 +import { createModuleLogger, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from './main.js'
 +import { validName } from './utils.js'
@@ -694,9 +1020,7 @@ index 0000000..e984d97
 +			id: 'mds_cue_media',
 +			name: 'Multidestination Studio - Auto-follow media position (elapsed / total)',
 +			value:
-+				state.cuePhase === 'media'
-+					? `${formatClock(state.cueMediaTime)} / ${formatClock(state.cueMediaDuration)}`
-+					: '',
++				state.cuePhase === 'media' ? `${formatClock(state.cueMediaTime)} / ${formatClock(state.cueMediaDuration)}` : '',
 +		},
 +		{ id: 'mds_cue_status', name: 'Multidestination Studio - Running cue status', value: cueStatusText(state) },
 +	]
@@ -808,10 +1132,10 @@ index 3a8274b..68b35a9 100644
  	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = Object.assign({}, ...parts.map((p) => p.presets))
 diff --git a/src/presets/multidestination.ts b/src/presets/multidestination.ts
 new file mode 100644
-index 0000000..b7952cd
+index 0000000..d1456ba
 --- /dev/null
 +++ b/src/presets/multidestination.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,265 @@
 +import { CompanionPresetDefinitions, CompanionPresetSection } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import type { OBSInstanceTypes } from '../main.js'
@@ -1058,9 +1382,7 @@ index 0000000..b7952cd
 +							up: [],
 +						},
 +					],
-+					feedbacks: [
-+						{ feedbackId: 'mdsGroupSource', options: { group: group.name, source }, style: styleActive() },
-+					],
++					feedbacks: [{ feedbackId: 'mdsGroupSource', options: { group: group.name, source }, style: styleActive() }],
 +				}
 +				groupPresets.push(sourceId)
 +			}

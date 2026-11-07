@@ -52,8 +52,19 @@ bool UsesBounds(obs_sceneitem_t *item);
 /* Taille de la source après recadrage, en pixels source. */
 bool CroppedSourceSize(obs_sceneitem_t *item, float &w, float &h);
 
-/* Source visible la plus haute sous le point, -1 si aucune. */
-int64_t HitTest(obs_scene_t *scene, float x, float y);
+/* Source visible la plus haute sous le point, -1 si aucune. prefer : une
+ * source déjà sélectionnée (y compris dans un groupe) gardée si le point est
+ * dessus. */
+int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer = -1);
+
+/* Élément par id, au premier niveau ou dans un groupe de la scène. */
+obs_sceneitem_t *FindItem(obs_scene_t *scene, int64_t id);
+/* Boîte en pixels du canvas, aussi pour un élément d'un groupe (converti
+ * par la transformation du groupe). top : la scène qui contient le groupe. */
+bool GetWorldBox(obs_scene_t *top, obs_sceneitem_t *item, Box &box);
+void SetWorldBox(obs_scene_t *top, obs_sceneitem_t *item, const Box &box);
+/* Échelle à l'écran (élément × groupe). */
+void WorldScale(obs_scene_t *top, obs_sceneitem_t *item, float &sx, float &sy);
 
 /* Poignée sous le point (tolérance en pixels canvas). */
 int HandleAt(const Box &box, float x, float y, float tolerance);

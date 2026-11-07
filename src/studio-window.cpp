@@ -39,7 +39,10 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDockWidget>
+#include <QFormLayout>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileInfo>
@@ -319,7 +322,21 @@ void StudioWindow::BuildCentral()
 
 	pvwGrid = new TileGrid(false, monitors);
 	pgmGrid = new TileGrid(true, monitors);
-	layout->addWidget(makeColumn(Tr("MDS.Preview"), pvwGrid), 1);
+	QWidget *pvwColumn = makeColumn(Tr("MDS.Preview"), pvwGrid);
+	layout->addWidget(pvwColumn, 1);
+	/* Cue en Aperçu : le titre le dit (Transition lancera la cue, pas
+	 * seulement sa première scène). */
+	if (auto *title = pvwColumn->findChild<QLabel *>()) {
+		auto update = [title]() {
+			const CueEngine &engine = CueEngine::Get();
+			const Cue *armed = engine.Find(engine.ArmedId());
+			title->setText(armed && Manager::Get().CuesEnabled()
+					       ? Tr("MDS.PreviewCue").arg(QString::fromStdString(armed->name))
+					       : Tr("MDS.Preview"));
+		};
+		connect(&CueEngine::Get(), &CueEngine::stateChanged, title, update);
+		connect(&Manager::Get(), &Manager::settingsChanged, title, update);
+	}
 
 	/* Boutons entre Aperçu et Programme, comme le mode Studio d'OBS. */
 	/* « Modifier le PGM » bien au-dessus de Transition / Cut, pour ne pas
@@ -498,9 +515,12 @@ void StudioWindow::BuildDocks()
 		}
 		if (scene || onFolder) {
 			menu.addSeparator();
-			if (scene)
+			if (scene) {
 				connect(menu.addAction(Tr("MDS.SceneSettingsMenu")), &QAction::triggered, this,
 					[this, scene]() { EditScene(scene); });
+				connect(menu.addAction(Tr("MDS.DuplicateScene")), &QAction::triggered, this,
+					[this, scene]() { DuplicateScene(scene); });
+			}
 			connect(menu.addAction(Tr("MDS.MoveUp")), &QAction::triggered, this,
 				[this]() { MoveScene(-1); });
 			connect(menu.addAction(Tr("MDS.MoveDown")), &QAction::triggered, this,
@@ -592,14 +612,9 @@ void StudioWindow::BuildDocks()
 			row = selected.isEmpty() ? nullptr : selected.front();
 		}
 		if (tile) {
-			/* Un élément d'un groupe : c'est le groupe qu'on sélectionne
-			 * dans l'aperçu. */
-			int64_t id = -1;
-			if (row) {
-				const qlonglong parent = row->data(0, Qt::UserRole + 1).toLongLong();
-				id = parent ? parent : row->data(0, Qt::UserRole).toLongLong();
-			}
-			tile->SetSelectedItem(id);
+			/* Un élément d'un groupe se sélectionne lui-même dans l'aperçu :
+			 * c'est lui qu'on déplace, pas tout le groupe. */
+			tile->SetSelectedItem(row ? row->data(0, Qt::UserRole).toLongLong() : -1);
 		}
 		UpdateMediaControls();
 	});
@@ -897,6 +912,7 @@ void StudioWindow::BuildMenus()
 	transform->addAction(MakeEditAction(Tr("MDS.PasteTransform"), {QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V)},
 					    &StudioWindow::EditPasteTransform));
 	transform->addSeparator();
+	transform->addAction(MakeEditAction(Tr("MDS.CropSource"), {}, &StudioWindow::EditCrop));
 	transform->addAction(MakeEditAction(Tr("MDS.ResetTransform"), {QKeySequence(Qt::CTRL | Qt::Key_R)},
 					    &StudioWindow::EditResetTransform));
 	transform->addAction(
@@ -1337,9 +1353,14 @@ void StudioWindow::ConnectTile(TileWidget *tile)
 			return;
 		const QSignalBlocker blocker(sourceList);
 		QTreeWidgetItem *found = nullptr;
-		for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
-			if (sourceList->topLevelItem(i)->data(0, Qt::UserRole).toLongLong() == id)
-				found = sourceList->topLevelItem(i);
+		for (int i = 0; i < sourceList->topLevelItemCount() && !found; i++) {
+			QTreeWidgetItem *top = sourceList->topLevelItem(i);
+			if (top->data(0, Qt::UserRole).toLongLong() == id)
+				found = top;
+			for (int k = 0; k < top->childCount() && !found; k++) {
+				if (top->child(k)->data(0, Qt::UserRole).toLongLong() == id)
+					found = top->child(k);
+			}
 		}
 		/* Élément déjà dans la sélection (Ctrl/Maj) : on la garde. */
 		if (found && found->isSelected()) {
@@ -2041,39 +2062,25 @@ void StudioWindow::MoveSourceRows(QTreeWidgetItem *target, int position)
 	}
 
 	Undo::PushSceneState(s);
-	/* Entrées et sorties de groupes. */
-	auto groupItem = [&](int64_t id) -> obs_sceneitem_t * {
-		obs_sceneitem_t *g = id ? obs_scene_find_sceneitem_by_id(s, id) : nullptr;
-		return g && obs_sceneitem_is_group(g) ? g : nullptr;
-	};
-	for (auto &[row, item] : items) {
+	/* Nouvel ordre appliqué d'un coup, groupes compris, comme le fait OBS
+	 * (obs_scene_reorder_items2) : les éléments qui entrent dans un groupe ou
+	 * en sortent gardent leur place à l'écran. Liste du bas vers le haut :
+	 * chaque groupe, puis ses éléments du bas vers le haut. */
+	std::vector<struct obs_sceneitem_order_info> order;
+	for (int i = sourceList->topLevelItemCount() - 1; i >= 0; i--) {
+		QTreeWidgetItem *top = sourceList->topLevelItem(i);
+		OBSSceneItem &item = items[top];
 		if (!item)
 			continue;
-		const int64_t oldParent = row->data(0, Qt::UserRole + 1).toLongLong();
-		const int64_t newParent = row->parent() ? row->parent()->data(0, Qt::UserRole).toLongLong() : 0;
-		if (oldParent == newParent)
+		order.push_back({nullptr, item});
+		if (!obs_sceneitem_is_group(item))
 			continue;
-		if (obs_sceneitem_t *g = groupItem(oldParent))
-			obs_sceneitem_group_remove_item(g, item);
-		if (obs_sceneitem_t *g = groupItem(newParent))
-			obs_sceneitem_group_add_item(g, item);
-	}
-	/* Ordre : haut de la liste = devant, au premier niveau et dans
-	 * chaque groupe. */
-	const int n = sourceList->topLevelItemCount();
-	for (int pos = 0; pos < n; pos++) {
-		QTreeWidgetItem *top = sourceList->topLevelItem(n - 1 - pos);
-		if (OBSSceneItem &it = items[top])
-			obs_sceneitem_set_order_position(it, pos);
-	}
-	for (int i = 0; i < n; i++) {
-		QTreeWidgetItem *top = sourceList->topLevelItem(i);
-		const int m = top->childCount();
-		for (int pos = 0; pos < m; pos++) {
-			if (OBSSceneItem &it = items[top->child(m - 1 - pos)])
-				obs_sceneitem_set_order_position(it, pos);
+		for (int k = top->childCount() - 1; k >= 0; k--) {
+			if (OBSSceneItem &child = items[top->child(k)])
+				order.push_back({item, child});
 		}
 	}
+	obs_scene_reorder_items2(s, order.data(), order.size());
 	RefreshSources();
 	AfterEdit();
 }
@@ -2138,6 +2145,34 @@ void StudioWindow::AddScene()
 			return;
 		}
 		QMessageBox::warning(this, Tr("MDS.NewScene"), Tr("MDS.SceneExists"));
+	}
+}
+
+/* Dupliquer une scène : nom et destinations, puis copie de son contenu dans
+ * chaque destination. */
+void StudioWindow::DuplicateScene(obs_source_t *scene)
+{
+	if (!scene)
+		return;
+	const QString base = QString::fromUtf8(obs_source_get_name(scene));
+	QString candidate;
+	for (int n = 2;; n++) {
+		candidate = QString("%1 %2").arg(base).arg(n);
+		OBSSourceAutoRelease existing = obs_get_source_by_name(candidate.toUtf8().constData());
+		if (!existing)
+			break;
+	}
+	std::string name = candidate.toStdString();
+	std::set<Destination *> coverage;
+	while (true) {
+		if (!Dialogs::DuplicateScene(this, scene, name, coverage))
+			return;
+		OBSSource copy = Manager::Get().DuplicateScene(scene, name, coverage);
+		if (copy) {
+			Manager::Get().SetPreviewScene(copy);
+			return;
+		}
+		QMessageBox::warning(this, Tr("MDS.DuplicateSceneTitle"), Tr("MDS.SceneExists"));
 	}
 }
 
@@ -2280,10 +2315,6 @@ void StudioWindow::RefreshSources()
 		selectedIds.insert(row->data(0, Qt::UserRole).toLongLong());
 	const int scroll = sourceList->verticalScrollBar()->value();
 	const QColor color = sourceList->palette().color(QPalette::Text);
-	const int64_t childSelected = sourceList->currentItem() &&
-						      sourceList->currentItem()->data(0, Qt::UserRole + 1).toLongLong()
-					      ? sourceList->currentItem()->data(0, Qt::UserRole).toLongLong()
-					      : -1;
 	sourceList->clear();
 
 	TileWidget *tile = ActiveTile();
@@ -2313,8 +2344,36 @@ void StudioWindow::RefreshSources()
 				return true;
 			},
 			&items);
+		/* À l'antenne, OBS peut afficher une copie de la scène dont les
+		 * groupes n'ont pas de vrai nom : on reprend ceux de la scène
+		 * d'origine, dans le même ordre. */
+		std::vector<std::string> originalGroups;
+		if (activeIsProgram && activeDest) {
+			OBSSource original = activeDest->ProgramOriginal();
+			if (obs_scene_t *os = obs_scene_from_source(original); os && os != s) {
+				obs_scene_enum_items(
+					os,
+					[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+						if (obs_sceneitem_is_group(item)) {
+							const char *n =
+								obs_source_get_name(obs_sceneitem_get_source(item));
+							static_cast<std::vector<std::string> *>(param)->insert(
+								static_cast<std::vector<std::string> *>(param)->begin(),
+								n ? n : "");
+						}
+						return true;
+					},
+					&originalGroups);
+			}
+		}
+		size_t groupIndex = 0;
 		for (obs_sceneitem_t *item : items) {
 			QTreeWidgetItem *row = MakeSourceRow(item, 0, color);
+			if (obs_sceneitem_is_group(item) && groupIndex < originalGroups.size()) {
+				const std::string &n = originalGroups[groupIndex++];
+				if (!n.empty())
+					row->setText(0, QString::fromStdString(n));
+			}
 			sourceList->addTopLevelItem(row);
 			const int64_t id = obs_sceneitem_get_id(item);
 			if (obs_sceneitem_is_group(item)) {
@@ -2331,7 +2390,7 @@ void StudioWindow::RefreshSources()
 				for (obs_sceneitem_t *child : children) {
 					QTreeWidgetItem *c = MakeSourceRow(child, id, color);
 					row->addChild(c);
-					if (id == selected && obs_sceneitem_get_id(child) == childSelected)
+					if (obs_sceneitem_get_id(child) == selected)
 						currentRow = c;
 				}
 				OBSDataAutoRelease priv = obs_sceneitem_get_private_settings(item);
@@ -2382,15 +2441,12 @@ OBSSceneItem StudioWindow::CurrentItem() const
 	if (!s || !tile)
 		return nullptr;
 	int64_t id = tile->SelectedItem();
-	/* Élément d'un groupe choisi dans la liste : c'est lui qu'on édite. */
-	if (QTreeWidgetItem *row = sourceList->currentItem()) {
-		const int64_t parent = row->data(0, Qt::UserRole + 1).toLongLong();
-		if (parent && (id < 0 || id == parent))
+	if (id < 0) {
+		if (QTreeWidgetItem *row = sourceList->currentItem())
 			return ItemFromRow(row);
-		if (id < 0)
-			id = row->data(0, Qt::UserRole).toLongLong();
 	}
-	return id >= 0 ? OBSSceneItem(obs_scene_find_sceneitem_by_id(s, id)) : OBSSceneItem();
+	/* Premier niveau ou élément d'un groupe. */
+	return id >= 0 ? OBSSceneItem(SceneEditor::FindItem(s, id)) : OBSSceneItem();
 }
 
 void StudioWindow::SelectItem(int64_t id)
@@ -2631,6 +2687,43 @@ void StudioWindow::ShowItemMenu(const QPoint &globalPos)
 			else
 				EditRenameGroup();
 		});
+		/* Mettre la source dans un groupe ou l'en sortir sans la déplacer à
+		 * l'écran (comme un glisser dans la liste). */
+		QTreeWidgetItem *row = nullptr;
+		for (int i = 0; i < sourceList->topLevelItemCount() && !row; i++) {
+			QTreeWidgetItem *top = sourceList->topLevelItem(i);
+			if (ItemFromRow(top).Get() == item.Get())
+				row = top;
+			for (int k = 0; k < top->childCount() && !row; k++) {
+				if (ItemFromRow(top->child(k)).Get() == item.Get())
+					row = top->child(k);
+			}
+		}
+		if (row && !obs_sceneitem_is_group(item)) {
+			QMenu *into = nullptr;
+			for (int i = 0; i < sourceList->topLevelItemCount(); i++) {
+				QTreeWidgetItem *top = sourceList->topLevelItem(i);
+				if (!top->data(0, Qt::UserRole + 2).toBool() || top == row->parent())
+					continue;
+				if (!into)
+					into = menu.addMenu(Tr("MDS.MoveToGroup"));
+				connect(into->addAction(top->text(0)), &QAction::triggered, this, [this, row, top]() {
+					sourceList->clearSelection();
+					sourceList->setCurrentItem(row);
+					row->setSelected(true);
+					MoveSourceRows(top, OrganizerTree::DropOn);
+				});
+			}
+			if (QTreeWidgetItem *parent = row->parent()) {
+				connect(menu.addAction(Tr("MDS.RemoveFromGroup")), &QAction::triggered, this,
+					[this, row, parent]() {
+						sourceList->clearSelection();
+						sourceList->setCurrentItem(row);
+						row->setSelected(true);
+						MoveSourceRows(parent, OrganizerTree::DropAbove);
+					});
+			}
+		}
 		if (obs_sceneitem_is_group(item))
 			connect(menu.addAction(Tr("MDS.UngroupSources")), &QAction::triggered, this,
 				&StudioWindow::EditUngroup);
@@ -2669,6 +2762,20 @@ void StudioWindow::EditCopy()
 	clipboardSource = OBSGetWeakRef(obs_sceneitem_get_source(item));
 	clipboardTransform = SceneEditor::GetTransform(item);
 	hasClipboardTransform = true;
+	/* Source d'un groupe : sa transformation est relative au groupe. On
+	 * garde sa place réelle à l'écran pour la coller au même endroit. */
+	hasClipboardBox = false;
+	if (obs_scene_t *s = ActiveScene(); s && obs_sceneitem_get_group(s, item))
+		hasClipboardBox = SceneEditor::GetWorldBox(s, item, clipboardBox);
+}
+
+void StudioWindow::ApplyClipboardTransform(obs_scene_t *scene, obs_sceneitem_t *item)
+{
+	if (!hasClipboardTransform)
+		return;
+	SceneEditor::SetTransform(item, clipboardTransform);
+	if (hasClipboardBox)
+		SceneEditor::SetWorldBox(scene, item, clipboardBox);
 }
 
 void StudioWindow::EditPaste()
@@ -2681,8 +2788,7 @@ void StudioWindow::EditPaste()
 	obs_sceneitem_t *item = obs_scene_add(s, source);
 	if (!item)
 		return;
-	if (hasClipboardTransform)
-		SceneEditor::SetTransform(item, clipboardTransform);
+	ApplyClipboardTransform(s, item);
 	Undo::PushAdded(s, obs_sceneitem_get_id(item));
 	SelectItem(obs_sceneitem_get_id(item));
 	AfterEdit();
@@ -2701,6 +2807,11 @@ void StudioWindow::EditGroup()
 		if (obs_sceneitem_t *it = obs_scene_find_sceneitem_by_id(s, row->data(0, Qt::UserRole).toLongLong()))
 			items.push_back(it);
 	}
+	/* OBS attend les éléments du fond vers l'avant : dans l'ordre de la
+	 * sélection, les sources changeaient de plan en entrant dans le groupe. */
+	std::sort(items.begin(), items.end(), [](obs_sceneitem_t *a, obs_sceneitem_t *b) {
+		return obs_sceneitem_get_order_position(a) < obs_sceneitem_get_order_position(b);
+	});
 	if (items.empty()) {
 		OBSSceneItem current = CurrentItem();
 		if (current && obs_sceneitem_get_scene(current) == s && sourceList->currentItem() &&
@@ -2790,8 +2901,7 @@ void StudioWindow::EditPasteDuplicate()
 	obs_sceneitem_t *item = obs_scene_add(s, copy);
 	if (!item)
 		return;
-	if (hasClipboardTransform)
-		SceneEditor::SetTransform(item, clipboardTransform);
+	ApplyClipboardTransform(s, item);
 	Undo::PushAdded(s, obs_sceneitem_get_id(item));
 	SelectItem(obs_sceneitem_get_id(item));
 	AfterEdit();
@@ -2842,6 +2952,8 @@ void StudioWindow::EditCopyTransform()
 		return;
 	copiedTransform = SceneEditor::GetTransform(item);
 	hasCopiedTransform = true;
+	obs_scene_t *s = ActiveScene();
+	hasCopiedBox = s && obs_sceneitem_get_group(s, item) && SceneEditor::GetWorldBox(s, item, copiedBox);
 }
 
 void StudioWindow::EditPasteTransform()
@@ -2851,6 +2963,82 @@ void StudioWindow::EditPasteTransform()
 		return;
 	Undo::PushSceneState(ActiveScene());
 	SceneEditor::SetTransform(item, copiedTransform);
+	/* Même place à l'écran, que les sources soient dans un groupe ou non. */
+	obs_scene_t *s = ActiveScene();
+	if (hasCopiedBox || (s && obs_sceneitem_get_group(s, item))) {
+		SceneEditor::Box box;
+		if (hasCopiedBox)
+			box = copiedBox;
+		else if (!SceneEditor::GetBox(item, box))
+			box = {};
+		if (box.w > 0.0f && box.h > 0.0f)
+			SceneEditor::SetWorldBox(s, item, box);
+	}
+	AfterEdit();
+}
+
+/* Rognage de la source, comme la partie « Rogner » de la fenêtre
+ * « Modifier la transformation » d'OBS : gauche, haut, droite, bas en
+ * pixels de la source, appliqué en direct ; Annuler remet le rognage
+ * d'avant. */
+void StudioWindow::EditCrop()
+{
+	OBSSceneItem item = CurrentItem();
+	if (!item)
+		return;
+	struct obs_sceneitem_crop before = {};
+	obs_sceneitem_get_crop(item, &before);
+	Undo::PushSceneState(ActiveScene());
+
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	QDialog dialog(this);
+	dialog.setWindowTitle(Tr("MDS.CropTitle").arg(QString::fromUtf8(obs_source_get_name(source))));
+	auto *root = new QVBoxLayout(&dialog);
+	auto *form = new QFormLayout();
+	const uint32_t w = obs_source_get_width(source);
+	const uint32_t h = obs_source_get_height(source);
+	if (w && h)
+		form->addRow(Tr("MDS.CropSourceSize"), new QLabel(QString("%1 × %2 px").arg(w).arg(h), &dialog));
+	auto spin = [&dialog](int value) {
+		auto *box = new QSpinBox(&dialog);
+		box->setRange(0, 100000);
+		box->setSuffix(" px");
+		box->setValue(value);
+		return box;
+	};
+	QSpinBox *left = spin(before.left);
+	QSpinBox *top = spin(before.top);
+	QSpinBox *right = spin(before.right);
+	QSpinBox *bottom = spin(before.bottom);
+	form->addRow(Tr("MDS.CropLeft"), left);
+	form->addRow(Tr("MDS.CropRight"), right);
+	form->addRow(Tr("MDS.CropTop"), top);
+	form->addRow(Tr("MDS.CropBottom"), bottom);
+	root->addLayout(form);
+
+	obs_sceneitem_t *it = item;
+	auto apply = [it, left, top, right, bottom]() {
+		struct obs_sceneitem_crop crop = {left->value(), top->value(), right->value(), bottom->value()};
+		obs_sceneitem_set_crop(it, &crop);
+	};
+	for (QSpinBox *box : {left, top, right, bottom})
+		connect(box, &QSpinBox::valueChanged, &dialog, apply);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Reset,
+					     &dialog);
+	buttons->button(QDialogButtonBox::Cancel)->setText(Tr("MDS.Cancel"));
+	buttons->button(QDialogButtonBox::Reset)->setText(Tr("MDS.CropReset"));
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	connect(buttons->button(QDialogButtonBox::Reset), &QPushButton::clicked, &dialog, [=]() {
+		for (QSpinBox *box : {left, top, right, bottom})
+			box->setValue(0);
+	});
+	root->addWidget(buttons);
+	Dialogs::GuardEnterKey(&dialog);
+
+	if (dialog.exec() != QDialog::Accepted)
+		obs_sceneitem_set_crop(item, &before);
 	AfterEdit();
 }
 

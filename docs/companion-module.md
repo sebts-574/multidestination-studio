@@ -17,7 +17,7 @@ Multidestination Studio comes with a version of Companion's **OBS Studio** modul
 ## Step 1 — Download the module file
 
 1. Open the [Multidestination Studio releases](https://github.com/sebts-574/multidestination-studio/releases) and choose the release you installed in OBS.
-2. Under **Assets**, download **`obs-studio-4.0.0-multidestination.1.tgz`**.
+2. Under **Assets**, download **`obs-studio-4.0.0-multidestination.2.tgz`**.
 3. **Do not unzip or rename the file.** Companion only imports the `.tgz` file itself.
 
 ---
@@ -39,9 +39,9 @@ Companion talks to OBS through the WebSocket server built into OBS.
 1. Open the Companion web interface (the **Launch GUI** button of Companion).
 2. Go to **Modules**.
 3. Click **Import module package**.
-4. Choose `obs-studio-4.0.0-multidestination.1.tgz`.
+4. Choose `obs-studio-4.0.0-multidestination.2.tgz`.
 
-The module does **not** appear as a new, separate module. It is added as one more **version of the OBS Studio module**, named **4.0.0-multidestination.1**, next to the official versions (4.0.0, 3.15.x…). This is expected: it is the full OBS Studio module, plus the Multidestination Studio additions.
+The module does **not** appear as a new, separate module. It is added as one more **version of the OBS Studio module**, named **4.0.0-multidestination.2**, next to the official versions (4.0.0, 3.15.x…). This is expected: it is the full OBS Studio module, plus the Multidestination Studio additions.
 
 > **Important:** importing the module does **not** change the version used by your connections. A connection you created before keeps using the official version until you change it (step 4). This is the most common reason why the Multidestination Studio buttons do not appear.
 
@@ -53,16 +53,16 @@ The module does **not** appear as a new, separate module. It is added as one mor
 
 1. Go to **Connections** and click **Add connection**.
 2. Search for **OBS Studio** and add it.
-3. When Companion asks for the version, choose **4.0.0-multidestination.1**.
+3. When Companion asks for the version, choose **4.0.0-multidestination.2**.
 4. Enter the **IP address**, **port** and **password** from step 2, then save.
 
 **If you already have an OBS connection** (this step is required)
 
 1. Go to **Connections** and open your OBS Studio connection.
-2. Change its **module version** from the official version (for example 4.0.0 or 3.15.x) to **4.0.0-multidestination.1**, then save.
+2. Change its **module version** from the official version (for example 4.0.0 or 3.15.x) to **4.0.0-multidestination.2**, then save.
 3. Your existing buttons keep working.
 
-You can check which version a connection uses in **Modules → OBS Studio**: the plug icon marks the version in use. If it is not on 4.0.0-multidestination.1, go back to step 4.
+You can check which version a connection uses in **Modules → OBS Studio**: the plug icon marks the version in use. If it is not on 4.0.0-multidestination.2, go back to step 4.
 
 Do this on **every computer** running Companion: the version is chosen separately on each Companion installation.
 
@@ -85,10 +85,17 @@ The connection turns **green** when Companion reaches OBS.
 | **Transition With** (one per OBS transition) | Takes the Preview to Program with that transition | — |
 | **After a Transition** | Toggles “the previous Program returns to Preview” | Lit when on |
 | **Destinations Shown** | Toggles “all destinations” / “only the destinations of the selected scene” | Lit when on |
-| **Cue to Preview** (one per cue) | Shows the first scene of the cue in Preview; **Transition** then runs the cue | Green in Preview, red while running |
-| **Stop Cue** | Stops the running cue | — |
+| **Cue to Preview** (one per cue) | Puts the cue in Preview; **Transition** or a **Transition With** button then runs it (its first scene uses that transition) | Green in Preview, red while running |
+| **Stop Cue** | Stops the running cue with a fade to black | — |
+| **Running Cue Status** | Shows the running cue, its step and the time left (wait, or Auto-follow media) | — |
+| **Group** (one per source group) | Shows the group name and the source shown; each press shows the next source of the group and hides the others | — |
+| **Group: show …** (one per source of each group) | Shows that source of the group and hides the others | Lit while shown |
 
 The cue presets only appear when **Configuration Settings → Cues… → Activate Cues** is on in Multidestination Studio.
+
+Groups with the same name are switched together: the same group used in several scenes, or the same group recreated in another destination, has one button. Their sources are matched by name.
+
+Variables (for your own buttons): `$(obs:mds_preview_scene)`, `$(obs:mds_program_scene)`, `$(obs:mds_preview_cue)`, `$(obs:mds_running_cue)`, `$(obs:mds_cue_step)`, `$(obs:mds_cue_remaining)`, `$(obs:mds_cue_media)`, `$(obs:mds_cue_status)`, and `$(obs:mds_group_<group name>)` (spaces and special characters become `_`). Replace `obs` with your connection label if you renamed it.
 
 The buttons follow the studio live: when you change a scene, a setting or a cue in Multidestination Studio, their colours update. New scenes, transitions and cues appear in the presets automatically.
 
@@ -112,7 +119,7 @@ All the other OBS features of the module (recording, streaming, sources, audio, 
 - Update Companion, then try again.
 
 **No “Multidestination Studio” section in the presets**
-- Most often, the OBS connection still uses the official version. Open the connection and set its module version to **4.0.0-multidestination.1** (step 4). In **Modules → OBS Studio**, the plug icon must be on that version.
+- Most often, the OBS connection still uses the official version. Open the connection and set its module version to **4.0.0-multidestination.2** (step 4). In **Modules → OBS Studio**, the plug icon must be on that version.
 - Check that the connection is green and that OBS runs with Multidestination Studio 1.1.0 or later.
 - Restart OBS, then disable and re-enable the connection in Companion.
 

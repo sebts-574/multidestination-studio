@@ -19,6 +19,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "scene-editor.hpp"
 #include "render-helpers.hpp"
 
+#include <graphics/matrix4.h>
+#include <graphics/vec3.h>
+
 #include <cmath>
 #include <mutex>
 #include <string>
@@ -241,8 +244,109 @@ void SetBox(obs_sceneitem_t *item, const Box &box)
 	obs_sceneitem_set_pos(item, &pos);
 }
 
-int64_t HitTest(obs_scene_t *scene, float x, float y)
+obs_sceneitem_t *FindItem(obs_scene_t *scene, int64_t id)
 {
+	if (!scene || id < 0)
+		return nullptr;
+	if (obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(scene, id))
+		return item;
+	struct Ctx {
+		int64_t id;
+		obs_sceneitem_t *found = nullptr;
+	} ctx{id};
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			auto *c = static_cast<Ctx *>(param);
+			if (!obs_sceneitem_is_group(item))
+				return true;
+			c->found = obs_scene_find_sceneitem_by_id(obs_sceneitem_group_get_scene(item), c->id);
+			return c->found == nullptr;
+		},
+		&ctx);
+	return ctx.found;
+}
+
+/* Groupe qui contient l'élément (nullptr au premier niveau). */
+static obs_sceneitem_t *ParentGroup(obs_scene_t *top, obs_sceneitem_t *item)
+{
+	if (!top || !item || obs_sceneitem_get_scene(item) == top)
+		return nullptr;
+	return obs_sceneitem_get_group(top, item);
+}
+
+static void TransformBox(const struct matrix4 &m, const Box &in, Box &out)
+{
+	struct vec3 a, b;
+	vec3_set(&a, in.x, in.y, 0.0f);
+	vec3_set(&b, in.x + in.w, in.y + in.h, 0.0f);
+	vec3_transform(&a, &a, &m);
+	vec3_transform(&b, &b, &m);
+	out.x = std::fmin(a.x, b.x);
+	out.y = std::fmin(a.y, b.y);
+	out.w = std::fabs(b.x - a.x);
+	out.h = std::fabs(b.y - a.y);
+}
+
+bool GetWorldBox(obs_scene_t *top, obs_sceneitem_t *item, Box &box)
+{
+	if (!GetBox(item, box))
+		return false;
+	obs_sceneitem_t *group = ParentGroup(top, item);
+	if (!group)
+		return true;
+	struct matrix4 m;
+	obs_sceneitem_get_draw_transform(group, &m);
+	TransformBox(m, box, box);
+	return box.w > 0.0f && box.h > 0.0f;
+}
+
+void SetWorldBox(obs_scene_t *top, obs_sceneitem_t *item, const Box &box)
+{
+	obs_sceneitem_t *group = ParentGroup(top, item);
+	if (!group) {
+		SetBox(item, box);
+		return;
+	}
+	/* Coordonnées du groupe : on applique l'inverse de sa transformation ;
+	 * le groupe se redimensionne ensuite autour de ses éléments. */
+	struct matrix4 m, inv;
+	obs_sceneitem_get_draw_transform(group, &m);
+	if (!matrix4_inv(&inv, &m))
+		return;
+	Box local;
+	TransformBox(inv, box, local);
+	obs_sceneitem_defer_group_resize_begin(group);
+	SetBox(item, local);
+	obs_sceneitem_defer_group_resize_end(group);
+}
+
+void WorldScale(obs_scene_t *top, obs_sceneitem_t *item, float &sx, float &sy)
+{
+	struct vec2 scale;
+	obs_sceneitem_get_scale(item, &scale);
+	sx = std::fabs(scale.x);
+	sy = std::fabs(scale.y);
+	if (obs_sceneitem_t *group = ParentGroup(top, item)) {
+		struct matrix4 m;
+		obs_sceneitem_get_draw_transform(group, &m);
+		sx *= std::fabs(m.x.x);
+		sy *= std::fabs(m.y.y);
+	}
+}
+
+int64_t HitTest(obs_scene_t *scene, float x, float y, int64_t prefer)
+{
+	/* Source sélectionnée (par exemple dans un groupe, choisie dans la
+	 * liste) : un clic dessus la garde, au lieu de prendre son groupe. */
+	if (prefer >= 0) {
+		obs_sceneitem_t *item = FindItem(scene, prefer);
+		Box box;
+		if (item && obs_sceneitem_visible(item) && !obs_sceneitem_locked(item) &&
+		    GetWorldBox(scene, item, box) && box.Contains(x, y))
+			return prefer;
+	}
+
 	struct Ctx {
 		float x, y;
 		int64_t id;
@@ -351,6 +455,18 @@ void SetTransform(obs_sceneitem_t *item, const Transform &t)
 	obs_sceneitem_set_crop(item, &t.crop);
 }
 
+/* OBS en mode Studio (« modifier les propriétés ») met à l'antenne des copies
+ * privées des sources. On retrouve la source d'origine par son nom pour ne
+ * jamais mettre une copie privée dans la vraie scène. */
+static OBSSource PublicSource(obs_source_t *source)
+{
+	if (!source || !obs_obj_is_private(source))
+		return OBSSource(source);
+	const char *name = obs_source_get_name(source);
+	OBSSourceAutoRelease pub = name && *name ? obs_get_source_by_name(name) : nullptr;
+	return pub ? OBSSource(pub.Get()) : OBSSource(source);
+}
+
 void CopyLayout(obs_scene_t *from, obs_scene_t *to)
 {
 	if (!from || !to || from == to)
@@ -368,7 +484,7 @@ void CopyLayout(obs_scene_t *from, obs_scene_t *to)
 			scene,
 			[](obs_scene_t *, obs_sceneitem_t *it, void *param) {
 				auto *list = static_cast<std::vector<Item> *>(param);
-				list->push_back({OBSSource(obs_sceneitem_get_source(it)), GetTransform(it),
+				list->push_back({PublicSource(obs_sceneitem_get_source(it)), GetTransform(it),
 						 obs_sceneitem_visible(it), it});
 				return true;
 			},
@@ -444,59 +560,54 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 	if (!scene || screenScale <= 0.0f)
 		return;
 
-	struct Ctx {
-		int64_t id;
-		float px; /* un pixel écran en unités canvas */
-		float cw;
-		float ch;
-	} ctx{itemId, 1.0f / screenScale, float(canvasW), float(canvasH)};
+	const float px = 1.0f / screenScale; /* un pixel écran en unités canvas */
+	const float cw = float(canvasW);
+	const float ch = float(canvasH);
 
+	/* Vidéos inactives (sans image) : cadre toujours visible. */
 	obs_scene_enum_items(
 		scene,
 		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-			auto *c = static_cast<Ctx *>(param);
-			if (obs_sceneitem_get_id(item) != c->id) {
-				/* Vidéo inactive (sans image) : cadre toujours visible. */
-				Box ph;
-				if (obs_sceneitem_visible(item) && IsInactiveVideo(item) && GetBox(item, ph))
-					DrawOutline(ph.x, ph.y, ph.w, ph.h, c->px, PLACEHOLDER_COLOR);
-				return true;
-			}
-
-			Box box;
-			if (!GetBox(item, box))
-				return true;
-
-			/* Guides quand la source est centrée sur le canvas. */
-			const float tol = 0.5f;
-			if (std::fabs(box.x + box.w * 0.5f - c->cw * 0.5f) <= tol)
-				DrawSolidRect(c->cw * 0.5f - 0.5f * c->px, 0.0f, c->px, c->ch, GUIDE_COLOR);
-			if (std::fabs(box.y + box.h * 0.5f - c->ch * 0.5f) <= tol)
-				DrawSolidRect(0.0f, c->ch * 0.5f - 0.5f * c->px, c->cw, c->px, GUIDE_COLOR);
-
-			/* Orange si la source dépasse du cadre (sans la limiter). */
-			const float eps = 0.5f;
-			const bool outside = box.x < -eps || box.y < -eps || box.x + box.w > c->cw + eps ||
-					     box.y + box.h > c->ch + eps;
-			const uint32_t color = outside ? OUTSIDE_COLOR : SELECTION_COLOR;
-
-			DrawOutline(box.x, box.y, box.w, box.h, 2.0f * c->px, color);
-
-			const float hs = 8.0f * c->px;
-			const float xs[3] = {box.x, box.x + box.w * 0.5f, box.x + box.w};
-			const float ys[3] = {box.y, box.y + box.h * 0.5f, box.y + box.h};
-			for (int ix = 0; ix < 3; ix++) {
-				for (int iy = 0; iy < 3; iy++) {
-					if (ix == 1 && iy == 1)
-						continue;
-					DrawSolidRect(xs[ix] - hs * 0.5f - c->px, ys[iy] - hs * 0.5f - c->px,
-						      hs + 2.0f * c->px, hs + 2.0f * c->px, color);
-					DrawSolidRect(xs[ix] - hs * 0.5f, ys[iy] - hs * 0.5f, hs, hs, HANDLE_COLOR);
-				}
-			}
+			const float p = *static_cast<float *>(param);
+			Box ph;
+			if (obs_sceneitem_visible(item) && IsInactiveVideo(item) && GetBox(item, ph))
+				DrawOutline(ph.x, ph.y, ph.w, ph.h, p, PLACEHOLDER_COLOR);
 			return true;
 		},
-		&ctx);
+		const_cast<float *>(&px));
+
+	/* Source sélectionnée, au premier niveau ou dans un groupe. */
+	obs_sceneitem_t *item = FindItem(scene, itemId);
+	Box box;
+	if (!item || !GetWorldBox(scene, item, box))
+		return;
+
+	/* Guides quand la source est centrée sur le canvas. */
+	const float tol = 0.5f;
+	if (std::fabs(box.x + box.w * 0.5f - cw * 0.5f) <= tol)
+		DrawSolidRect(cw * 0.5f - 0.5f * px, 0.0f, px, ch, GUIDE_COLOR);
+	if (std::fabs(box.y + box.h * 0.5f - ch * 0.5f) <= tol)
+		DrawSolidRect(0.0f, ch * 0.5f - 0.5f * px, cw, px, GUIDE_COLOR);
+
+	/* Orange si la source dépasse du cadre (sans la limiter). */
+	const float eps = 0.5f;
+	const bool outside = box.x < -eps || box.y < -eps || box.x + box.w > cw + eps || box.y + box.h > ch + eps;
+	const uint32_t color = outside ? OUTSIDE_COLOR : SELECTION_COLOR;
+
+	DrawOutline(box.x, box.y, box.w, box.h, 2.0f * px, color);
+
+	const float hs = 8.0f * px;
+	const float xs[3] = {box.x, box.x + box.w * 0.5f, box.x + box.w};
+	const float ys[3] = {box.y, box.y + box.h * 0.5f, box.y + box.h};
+	for (int ix = 0; ix < 3; ix++) {
+		for (int iy = 0; iy < 3; iy++) {
+			if (ix == 1 && iy == 1)
+				continue;
+			DrawSolidRect(xs[ix] - hs * 0.5f - px, ys[iy] - hs * 0.5f - px, hs + 2.0f * px, hs + 2.0f * px,
+				      color);
+			DrawSolidRect(xs[ix] - hs * 0.5f, ys[iy] - hs * 0.5f, hs, hs, HANDLE_COLOR);
+		}
+	}
 }
 
 } // namespace SceneEditor
