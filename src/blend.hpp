@@ -41,6 +41,8 @@ struct BlendOutput {
 	double y = 0.0;
 	double w = 0.0;
 	double h = 0.0;
+	/* Proportions gardées quand on redimensionne (souris ou champs). */
+	bool lockAspect = true;
 
 	/* Largeur des zones de fondu sur chaque bord, en pixels du layout.
 	 * En automatique : calculées à partir des recouvrements. */

@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.5 - User Guide (PDF).
+"""Multidestination Studio 1.1.6 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.5 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.6 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.5")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.6")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.5 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.6 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -341,11 +341,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.5-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.6-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.5-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.6-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.2.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -675,7 +675,7 @@ def build():
     s += steps([
         "Choose <b>Destinations → Output blending…</b>.",
         "Click <b>New output</b> for each projector and choose its <b>screen</b>.",
-        "Drag each output from the list onto the <b>layout</b> (or double-click it). An output keeps the shape "
+        "Drag each output from the list onto the <b>layout</b> (or double-click it). An output starts with the shape "
         "of its screen and cannot leave the layout.",
         "Set the <b>layout size</b>, for example 3500 × 1080 for two overlapping full-HD projectors. The outputs "
         "follow automatically. The layout size becomes the resolution of the destination.",
@@ -685,10 +685,12 @@ def build():
     ])
     s += shot("The Output blending window with two overlapping outputs.", 85, "shot12.png")
     s += [P("Placing outputs", h2)]
-    s += [P("Outputs are moved and resized with the mouse like sources: corners resize while keeping the shape "
-            "(Shift resizes freely), the centre snaps (Ctrl disables it), arrow keys nudge, Delete removes an "
-            "output from the layout and Ctrl+Z undoes. Position and size can also be typed in; Enter confirms a "
-            "value without closing the window.")]
+    s += [P("Outputs are moved and resized with the mouse like sources: the centre snaps (Ctrl disables it), "
+            "arrow keys nudge, Delete removes an output from the layout and Ctrl+Z undoes. The <b>lock</b> between "
+            "width and height keeps the aspect ratio of the output when it is resized, with the mouse or by typing "
+            "a size (on by default); Shift does the opposite while dragging. Position and size can also be typed "
+            "in, and the bottom-right corner is shown; Enter confirms a value without closing the window. The "
+            "edge blend widths are laid out like the edges of the output: top, left and right, bottom.")]
     s += [P("Blend settings", h2)]
     s += table([
         ["Setting", "Use"],

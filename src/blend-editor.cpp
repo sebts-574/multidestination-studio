@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include "blend-editor.hpp"
+#include "dock-style.hpp"
 #include "destination.hpp"
 #include "dialogs.hpp"
 #include "manager.hpp"
@@ -44,6 +45,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -372,7 +374,10 @@ void BlendLayoutView::mouseMoveEvent(QMouseEvent *event)
 
 		double w = startOut.w + (left ? -dx : dx);
 		double h = startOut.h + (top ? -dy : dy);
-		if (!(event->modifiers() & Qt::ShiftModifier)) {
+		/* Proportions verrouillées (réglage de la sortie) ; Maj fait
+		 * l'inverse le temps du glisser. */
+		const bool keep = o.lockAspect != bool(event->modifiers() & Qt::ShiftModifier);
+		if (keep) {
 			const double aspect = startOut.w / std::max(1.0, startOut.h);
 			w = std::max(w, h * aspect);
 			w = std::clamp(w, MIN_SIZE, std::min(maxW, maxH * aspect));
@@ -585,28 +590,75 @@ void BlendEditor::BuildUi()
 		s->setKeyboardTracking(false);
 		return s;
 	};
-	auto pair = [this](QWidget *a, QWidget *b) {
-		auto *row = new QHBoxLayout();
-		row->addWidget(a);
-		row->addWidget(new QLabel("×", params));
-		row->addWidget(b);
-		return row;
-	};
 	posX = spin(0, 16384);
 	posY = spin(0, 16384);
 	sizeW = spin(int(MIN_SIZE), 16384);
 	sizeH = spin(int(MIN_SIZE), 16384);
-	form->addRow(Tr("MDS.BlendPosition"), pair(posX, posY));
-	form->addRow(Tr("MDS.BlendSize"), pair(sizeW, sizeH));
 
-	autoBlend = new QCheckBox(Tr("MDS.BlendAuto"), params);
-	autoBlend->setToolTip(Tr("MDS.BlendAutoTip"));
-	form->addRow(autoBlend);
+	/* Zone de la sortie : taille (avec verrou des proportions entre largeur
+	 * et hauteur), position, et coin opposé (lecture seule). */
+	auto *region = new QGroupBox(params);
+	auto *regionGrid = new QGridLayout(region);
+	regionGrid->setColumnStretch(1, 1);
+	regionGrid->setColumnStretch(3, 1);
+	lockAspect = new QToolButton(region);
+	lockAspect->setCheckable(true);
+	lockAspect->setAutoRaise(true);
+	lockAspect->setToolTip(Tr("MDS.BlendLockAspect"));
+	auto updateLockIcon = [this]() {
+		lockAspect->setIcon(DockStyle::LockIcon(lockAspect->isChecked(),
+							lockAspect->palette().color(QPalette::ButtonText)));
+	};
+	connect(lockAspect, &QToolButton::toggled, this, updateLockIcon);
+	updateLockIcon();
+	endX = new QLabel(region);
+	endY = new QLabel(region);
+	for (QLabel *l : {endX, endY}) {
+		l->setAlignment(Qt::AlignCenter);
+		l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	}
+	auto rowLabel = [region](const QString &text) {
+		auto *l = new QLabel(text, region);
+		l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+		return l;
+	};
+	regionGrid->addWidget(rowLabel(Tr("MDS.BlendSize")), 0, 0);
+	regionGrid->addWidget(sizeW, 0, 1);
+	regionGrid->addWidget(lockAspect, 0, 2, Qt::AlignCenter);
+	regionGrid->addWidget(sizeH, 0, 3);
+	regionGrid->addWidget(rowLabel(Tr("MDS.BlendPosition")), 1, 0);
+	regionGrid->addWidget(posX, 1, 1);
+	regionGrid->addWidget(posY, 1, 3);
+	regionGrid->addWidget(rowLabel(Tr("MDS.BlendEnd")), 2, 0);
+	regionGrid->addWidget(endX, 2, 1);
+	regionGrid->addWidget(endY, 2, 3);
+	form->addRow(region);
+
+	/* Fondus des bords, disposés comme les bords de la sortie : haut, gauche
+	 * et droite, bas ; automatique en dessous. */
+	auto *edges = new QGroupBox(Tr("MDS.BlendEdges"), params);
+	auto *edgeGrid = new QGridLayout(edges);
 	const char *edgeKeys[4] = {"MDS.BlendLeft", "MDS.BlendRight", "MDS.BlendTop", "MDS.BlendBottom"};
+	const int edgeRow[4] = {1, 1, 0, 2};
+	const int edgeCol[4] = {0, 2, 1, 1};
 	for (int i = 0; i < 4; i++) {
 		edge[i] = spin(0, 16384);
-		form->addRow(Tr(edgeKeys[i]), edge[i]);
+		auto *cell = new QWidget(edges);
+		auto *cellLayout = new QVBoxLayout(cell);
+		cellLayout->setContentsMargins(0, 0, 0, 0);
+		cellLayout->setSpacing(2);
+		auto *label = new QLabel(Tr(edgeKeys[i]), cell);
+		label->setAlignment(Qt::AlignCenter);
+		cellLayout->addWidget(label);
+		cellLayout->addWidget(edge[i]);
+		edgeGrid->addWidget(cell, edgeRow[i], edgeCol[i]);
 	}
+	for (int c = 0; c < 3; c++)
+		edgeGrid->setColumnStretch(c, 1);
+	autoBlend = new QCheckBox(Tr("MDS.BlendAuto"), edges);
+	autoBlend->setToolTip(Tr("MDS.BlendAutoTip"));
+	edgeGrid->addWidget(autoBlend, 3, 0, 1, 3, Qt::AlignCenter);
+	form->addRow(edges);
 
 	gamma = new QDoubleSpinBox(params);
 	gamma->setRange(0.5, 4.0);
@@ -703,15 +755,21 @@ void BlendEditor::BuildUi()
 		ApplyParam([&](BlendOutput &o) {
 			const double aspect = o.w / std::max(1.0, o.h);
 			o.w = v;
-			o.h = v / aspect;
+			if (o.lockAspect)
+				o.h = v / aspect;
 		});
 	});
 	connect(sizeH, &QSpinBox::valueChanged, this, [this](int v) {
 		ApplyParam([&](BlendOutput &o) {
 			const double aspect = o.w / std::max(1.0, o.h);
 			o.h = v;
-			o.w = v * aspect;
+			if (o.lockAspect)
+				o.w = v * aspect;
 		});
+	});
+	connect(lockAspect, &QToolButton::toggled, this, [this](bool on) {
+		if (Current() && Current()->lockAspect != on)
+			ApplyParam([&](BlendOutput &o) { o.lockAspect = on; });
 	});
 	connect(autoBlend, &QCheckBox::toggled, this,
 		[this](bool on) { ApplyParam([&](BlendOutput &o) { o.autoBlend = on; }); });
@@ -841,6 +899,10 @@ void BlendEditor::RefreshParams()
 		posY->setValue(int(std::lround(o->y)));
 		sizeW->setValue(int(std::lround(o->w)));
 		sizeH->setValue(int(std::lround(o->h)));
+		lockAspect->setEnabled(o->placed);
+		lockAspect->setChecked(o->lockAspect);
+		endX->setText(o->placed ? QString::number(std::lround(o->x + o->w)) : QString());
+		endY->setText(o->placed ? QString::number(std::lround(o->y + o->h)) : QString());
 		autoBlend->setChecked(o->autoBlend);
 		const double values[4] = {o->left, o->right, o->top, o->bottom};
 		for (int i = 0; i < 4; i++) {

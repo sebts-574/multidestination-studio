@@ -140,6 +140,7 @@ void BlendConfig::Save(obs_data_t *data) const
 		obs_data_set_double(item, "w", o.w);
 		obs_data_set_double(item, "h", o.h);
 		obs_data_set_bool(item, "auto_blend", o.autoBlend);
+		obs_data_set_bool(item, "lock_aspect", o.lockAspect);
 		obs_data_set_double(item, "left", o.left);
 		obs_data_set_double(item, "right", o.right);
 		obs_data_set_double(item, "top", o.top);
@@ -184,6 +185,7 @@ void BlendConfig::Load(obs_data_t *data)
 		o.w = obs_data_get_double(item, "w");
 		o.h = obs_data_get_double(item, "h");
 		o.autoBlend = obs_data_get_bool(item, "auto_blend");
+		o.lockAspect = !obs_data_has_user_value(item, "lock_aspect") || obs_data_get_bool(item, "lock_aspect");
 		o.left = obs_data_get_double(item, "left");
 		o.right = obs_data_get_double(item, "right");
 		o.top = obs_data_get_double(item, "top");

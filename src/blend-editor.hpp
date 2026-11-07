@@ -30,6 +30,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 class Destination;
 class QCheckBox;
+class QToolButton;
 class QComboBox;
 class QDoubleSpinBox;
 class QGroupBox;
@@ -166,6 +167,9 @@ private:
 	QSpinBox *sizeW = nullptr;
 	QSpinBox *sizeH = nullptr;
 	QCheckBox *autoBlend = nullptr;
+	QToolButton *lockAspect = nullptr;
+	QLabel *endX = nullptr;
+	QLabel *endY = nullptr;
 	QSpinBox *edge[4] = {};
 	QDoubleSpinBox *gamma = nullptr;
 	QDoubleSpinBox *curve = nullptr;
