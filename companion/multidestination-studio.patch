@@ -1,8 +1,8 @@
 diff --git a/companion/CHANGELOG.md b/companion/CHANGELOG.md
-index e578272..29107ed 100644
+index e578272..3fb34a5 100644
 --- a/companion/CHANGELOG.md
 +++ b/companion/CHANGELOG.md
-@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
  ## [Unreleased]
  
@@ -12,15 +12,17 @@ index e578272..29107ed 100644
 +  "Multidestination Studio" preset section with its own Scene to Preview / Scene to Program buttons,
 +  Transition and Transition With buttons, After a Transition and Destinations Shown toggles, and cues.
 +  Matching actions and feedbacks use the plugin's obs-websocket vendor requests and events
++- Multidestination Studio: group source selector (one button per group, next / previous / chosen
++  source), running cue status and variables, Stop Cue fades to black
 +
  ### Fixed
  
  - Variables from 3.x work again in the scene and source of "Scene in Program", "Scene in Preview"
 diff --git a/companion/HELP.md b/companion/HELP.md
-index 148054e..c93492f 100644
+index 148054e..7a9545b 100644
 --- a/companion/HELP.md
 +++ b/companion/HELP.md
-@@ -202,6 +202,21 @@ The available per-source variables depend on the source type and capabilities re
+@@ -202,6 +202,31 @@ The available per-source variables depend on the source type and capabilities re
  - **custom_command_type**, **custom_command_request**, **custom_command_response**
  - **vendor_event_name**, **vendor_event_type**, **vendor_event_data**
  
@@ -34,7 +36,17 @@ index 148054e..c93492f 100644
 +- **Transition**: takes the studio Preview to Program with the current transition.
 +- **Transition With**: one button per OBS transition, which takes the Preview with that transition.
 +- **After a Transition** and **Destinations Shown**: toggles for the two studio settings, lit when on.
-+- **Cue to Preview** and **Stop Cue**, when the plugin's Cues feature is on.
++- **Cue to Preview**, **Stop Cue** and **Running Cue Status**, when the plugin's Cues feature is on. A
++  cue in Preview starts with **Transition** or a **Transition With** button (its first scene uses that
++  transition). **Stop Cue** ends the cue with a fade to black. The status button shows the step and the
++  time left (wait, or Auto-follow media).
++- **Group Source Selector**: one button per source group (groups with the same name share one
++  button). It shows the group name and the source shown; each press shows the next source of the
++  group and hides the others.
++
++Variables: `mds_preview_scene`, `mds_program_scene`, `mds_preview_cue`, `mds_running_cue`,
++`mds_cue_step`, `mds_cue_remaining`, `mds_cue_media`, `mds_cue_status`, and `mds_group_<group>` (source
++shown in each group).
 +
 +The matching actions and feedbacks are listed under "Multidestination Studio". They use the plugin's
 +vendor requests (vendor `multidestination-studio`) and refresh on its `StateChanged` vendor event.
@@ -43,7 +55,7 @@ index 148054e..c93492f 100644
  
  ### Custom – Send Command
 diff --git a/src/__tests__/mock/instance.ts b/src/__tests__/mock/instance.ts
-index e4215f8..10d2e0c 100644
+index e4215f8..174d85c 100644
 --- a/src/__tests__/mock/instance.ts
 +++ b/src/__tests__/mock/instance.ts
 @@ -10,6 +10,7 @@ import {
@@ -62,7 +74,7 @@ index e4215f8..10d2e0c 100644
  		config: { host: '127.0.0.1', port: 4455, ...config },
  		secrets: { ...secrets },
  		isRecordingActions: false,
-@@ -107,6 +109,18 @@ export function seedFullState(self: MockInstance): void {
+@@ -107,6 +109,19 @@ export function seedFullState(self: MockInstance): void {
  	s.previewSceneUuid = 'Scene B'
  	s.studioMode = true
  
@@ -76,6 +88,7 @@ index e4215f8..10d2e0c 100644
 +		transitions: ['Fade', 'Cut'],
 +		cuesEnabled: true,
 +		cues: ['Cue 1'],
++		groups: [{ name: 'Cameras', sources: ['Cam 1', 'Cam 2'], current: 'Cam 1' }],
 +	}
 +
  	// Audio input
@@ -112,10 +125,10 @@ index a18a179..ef094fa 100644
  }
 diff --git a/src/actions/multidestination.ts b/src/actions/multidestination.ts
 new file mode 100644
-index 0000000..2c7d2fd
+index 0000000..e9b9c2c
 --- /dev/null
 +++ b/src/actions/multidestination.ts
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,202 @@
 +import { CompanionActionDefinitions, type CompanionInputFieldDropdown, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import { multidestinationRequest } from '../multidestination.js'
@@ -127,6 +140,7 @@ index 0000000..2c7d2fd
 +	mdsAfterTransition: { options: { mode: 'toggle' | 'on' | 'off' } }
 +	mdsDestinationsShown: { options: { mode: 'toggle' | 'on' | 'off' } }
 +	mdsCue: { options: { mode: 'preview' | 'go' | 'stop'; cue: string } }
++	mdsGroup: { options: { mode: 'next' | 'previous' | 'select'; group: string; source: string } }
 +}
 +
 +/** Choice list from the plugin state; custom values allow names set by expressions. */
@@ -244,7 +258,8 @@ index 0000000..2c7d2fd
 +
 +		mdsCue: {
 +			name: 'Multidestination Studio - Cue',
-+			description: 'Shows a cue in Preview, runs it, or stops the running cue',
++			description:
++				'Shows a cue in Preview (Transition then runs it), runs it, or stops the running cue with a fade to black',
 +			options: [
 +				{
 +					type: 'dropdown',
@@ -254,7 +269,7 @@ index 0000000..2c7d2fd
 +					choices: [
 +						{ id: 'preview', label: 'Cue to Preview' },
 +						{ id: 'go', label: 'Run Cue' },
-+						{ id: 'stop', label: 'Stop Cue' },
++						{ id: 'stop', label: 'Stop Cue (fade to black)' },
 +					],
 +					disableAutoExpression: true,
 +				},
@@ -266,6 +281,50 @@ index 0000000..2c7d2fd
 +				} else {
 +					await multidestinationRequest(self, action.options.mode === 'go' ? 'GoCue' : 'SetPreviewCue', {
 +						cueName: action.options.cue,
++					})
++				}
++			},
++		},
++
++		mdsGroup: {
++			name: 'Multidestination Studio - Group Source',
++			description:
++				'Shows one source of a group and hides the others: the next one, the previous one, or a chosen one. Groups with the same name are switched together',
++			options: [
++				{
++					type: 'dropdown',
++					id: 'mode',
++					label: 'Mode',
++					default: 'next',
++					choices: [
++						{ id: 'next', label: 'Next source' },
++						{ id: 'previous', label: 'Previous source' },
++						{ id: 'select', label: 'Chosen source' },
++					],
++					disableAutoExpression: true,
++				},
++				mdsDropdown(
++					'group',
++					'Group',
++					state.groups.map((g) => g.name),
++				),
++				mdsDropdown(
++					'source',
++					'Source',
++					[...new Set(state.groups.flatMap((g) => g.sources))],
++					{ isVisibleExpression: `$(options:mode) == 'select'` },
++				),
++			],
++			callback: async (action) => {
++				if (action.options.mode === 'select') {
++					await multidestinationRequest(self, 'SelectGroupSource', {
++						groupName: action.options.group,
++						sourceName: action.options.source,
++					})
++				} else {
++					await multidestinationRequest(self, 'CycleGroup', {
++						groupName: action.options.group,
++						direction: action.options.mode === 'previous' ? -1 : 1,
 +					})
 +				}
 +			},
@@ -328,10 +387,10 @@ index bdd7a0e..1000aa6 100644
  }
 diff --git a/src/feedbacks/multidestination.ts b/src/feedbacks/multidestination.ts
 new file mode 100644
-index 0000000..a8ca8d9
+index 0000000..dc28a9b
 --- /dev/null
 +++ b/src/feedbacks/multidestination.ts
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,110 @@
 +import { CompanionFeedbackDefinitions } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import { styleActive, stylePreview, styleProgram } from '../presets/style.js'
@@ -342,6 +401,7 @@ index 0000000..a8ca8d9
 +	mdsAfterTransition: { type: 'boolean'; options: Record<string, never> }
 +	mdsDestinationsShown: { type: 'boolean'; options: Record<string, never> }
 +	mdsCue: { type: 'boolean'; options: { cue: string; state: 'running' | 'preview' } }
++	mdsGroupSource: { type: 'boolean'; options: { group: string; source: string } }
 +}
 +
 +export function getMultidestinationFeedbacks(
@@ -420,6 +480,25 @@ index 0000000..a8ca8d9
 +				return self.multidestination.available && current === feedback.options.cue
 +			},
 +		},
++
++		mdsGroupSource: {
++			type: 'boolean',
++			name: 'Multidestination Studio - Source Shown in Group',
++			description: 'If a source is the one shown in its group, change the style of the button',
++			defaultStyle: styleActive(),
++			options: [
++				mdsDropdown(
++					'group',
++					'Group',
++					state.groups.map((g) => g.name),
++				),
++				mdsDropdown('source', 'Source', [...new Set(state.groups.flatMap((g) => g.sources))]),
++			],
++			callback: (feedback) => {
++				const group = self.multidestination.groups.find((g) => g.name === feedback.options.group)
++				return self.multidestination.available && !!group && group.current === feedback.options.source
++			},
++		},
 +	}
 +}
 diff --git a/src/listeners.ts b/src/listeners.ts
@@ -481,12 +560,13 @@ index 6658168..8484ede 100644
  
 diff --git a/src/multidestination.ts b/src/multidestination.ts
 new file mode 100644
-index 0000000..c816bda
+index 0000000..e984d97
 --- /dev/null
 +++ b/src/multidestination.ts
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,222 @@
 +import { createModuleLogger, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from './main.js'
++import { validName } from './utils.js'
 +
 +const logger = createModuleLogger('Multidestination')
 +
@@ -506,6 +586,24 @@ index 0000000..c816bda
 +	cues: string[]
 +	previewCue: string
 +	runningCue: string
++	/** Running cue: current step (1-based, 0 when idle) and step count. */
++	cueStep: number
++	cueSteps: number
++	/** 'pre_wait', 'post_wait', 'media' or '' */
++	cuePhase: string
++	/** Time left in the current wait, or in the followed media (ms). */
++	cueRemaining: number
++	cueMediaTime: number
++	cueMediaDuration: number
++	/** Source groups (one entry per group name), sources listed top to bottom. */
++	groups: MultidestinationGroup[]
++}
++
++export interface MultidestinationGroup {
++	name: string
++	sources: string[]
++	/** First visible source, '' when none is visible. */
++	current: string
 +}
 +
 +export function emptyMultidestinationState(): MultidestinationState {
@@ -521,7 +619,95 @@ index 0000000..c816bda
 +		cues: [],
 +		previewCue: '',
 +		runningCue: '',
++		cueStep: 0,
++		cueSteps: 0,
++		cuePhase: '',
++		cueRemaining: 0,
++		cueMediaTime: 0,
++		cueMediaDuration: 0,
++		groups: [],
 +	}
++}
++
++function num(value: unknown): number {
++	return typeof value === 'number' && Number.isFinite(value) ? value : 0
++}
++
++function parseGroups(list: unknown): MultidestinationGroup[] {
++	if (!Array.isArray(list)) return []
++	const groups: MultidestinationGroup[] = []
++	for (const item of list) {
++		if (!item || typeof item !== 'object') continue
++		const g = item as Record<string, unknown>
++		if (typeof g.groupName !== 'string') continue
++		groups.push({
++			name: g.groupName,
++			sources: names(g.sources, 'sourceName'),
++			current: typeof g.current === 'string' ? g.current : '',
++		})
++	}
++	return groups
++}
++
++/** m:ss */
++export function formatClock(ms: number): string {
++	const total = Math.max(0, Math.floor(ms / 1000))
++	return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
++}
++
++/** Short status of the running cue, for a button: '2/5 ▶ 0:42' (media), '2/5 ⏱ 0:05' (wait), '' when idle. */
++export function cueStatusText(state: MultidestinationState): string {
++	if (!state.runningCue || state.cueStep <= 0) return ''
++	const step = `${state.cueStep}/${state.cueSteps}`
++	if (state.cuePhase === 'media') return `${step} ▶ ${formatClock(state.cueRemaining)}`
++	if (state.cuePhase === 'pre_wait' || state.cuePhase === 'post_wait') {
++		return `${step} ⏱ ${formatClock(state.cueRemaining)}`
++	}
++	return step
++}
++
++export function groupVariableId(group: string): string {
++	return `mds_group_${validName(group)}`
++}
++
++/** Variable definitions and values of the plugin state. */
++export function multidestinationVariableEntries(
++	state: MultidestinationState,
++): { id: string; name: string; value: string | number }[] {
++	if (!state.available) return []
++	const entries: { id: string; name: string; value: string | number }[] = [
++		{ id: 'mds_preview_scene', name: 'Multidestination Studio - Preview scene', value: state.previewScene },
++		{ id: 'mds_program_scene', name: 'Multidestination Studio - Program scene', value: state.programScene },
++		{ id: 'mds_preview_cue', name: 'Multidestination Studio - Cue in Preview', value: state.previewCue },
++		{ id: 'mds_running_cue', name: 'Multidestination Studio - Running cue', value: state.runningCue },
++		{
++			id: 'mds_cue_step',
++			name: 'Multidestination Studio - Running cue step (2/5)',
++			value: state.cueStep > 0 ? `${state.cueStep}/${state.cueSteps}` : '',
++		},
++		{
++			id: 'mds_cue_remaining',
++			name: 'Multidestination Studio - Time left in the current cue step (m:ss)',
++			value: state.cueStep > 0 ? formatClock(state.cueRemaining) : '',
++		},
++		{
++			id: 'mds_cue_media',
++			name: 'Multidestination Studio - Auto-follow media position (elapsed / total)',
++			value:
++				state.cuePhase === 'media'
++					? `${formatClock(state.cueMediaTime)} / ${formatClock(state.cueMediaDuration)}`
++					: '',
++		},
++		{ id: 'mds_cue_status', name: 'Multidestination Studio - Running cue status', value: cueStatusText(state) },
++	]
++	for (const group of state.groups) {
++		entries.push({
++			id: groupVariableId(group.name),
++			name: `Multidestination Studio - Source shown in group ${group.name}`,
++			value: group.current,
++		})
++	}
++	return entries
 +}
 +
 +/** Sends a request to the plugin. Resolves to its response data, or null if the plugin did not answer. */
@@ -556,10 +742,21 @@ index 0000000..c816bda
 +		cues: names(data.cues, 'cueName'),
 +		previewCue: typeof data.previewCue === 'string' ? data.previewCue : '',
 +		runningCue: typeof data.runningCue === 'string' ? data.runningCue : '',
++		cueStep: num(data.cueStep),
++		cueSteps: num(data.cueSteps),
++		cuePhase: typeof data.cuePhase === 'string' ? data.cuePhase : '',
++		cueRemaining: num(data.cueRemaining),
++		cueMediaTime: num(data.cueMediaTime),
++		cueMediaDuration: num(data.cueMediaDuration),
++		groups: parseGroups(data.groups),
 +	}
 +}
 +
-+const FEEDBACKS = ['mdsScene', 'mdsAfterTransition', 'mdsDestinationsShown', 'mdsCue'] as const
++const FEEDBACKS = ['mdsScene', 'mdsAfterTransition', 'mdsDestinationsShown', 'mdsCue', 'mdsGroupSource'] as const
++
++function groupsKey(groups: MultidestinationGroup[]): string {
++	return groups.map((g) => `${g.name}\t${g.sources.join('\t')}`).join('\n')
++}
 +
 +/** Re-reads the plugin state. Rebuilds the definitions when the plugin appears or its lists change. */
 +export async function refreshMultidestination(self: OBSInstance): Promise<void> {
@@ -581,8 +778,12 @@ index 0000000..c816bda
 +		next.cuesEnabled !== previous.cuesEnabled ||
 +		next.scenes.join('\n') !== previous.scenes.join('\n') ||
 +		next.transitions.join('\n') !== previous.transitions.join('\n') ||
-+		next.cues.join('\n') !== previous.cues.join('\n')
++		next.cues.join('\n') !== previous.cues.join('\n') ||
++		groupsKey(next.groups) !== groupsKey(previous.groups)
 +	if (listsChanged) self.updateActionsFeedbacksVariables()
++	const values: Record<string, string | number> = {}
++	for (const entry of multidestinationVariableEntries(next)) values[entry.id] = entry.value
++	if (Object.keys(values).length > 0) self.setVariableValues(values)
 +	self.checkFeedbacks(...FEEDBACKS)
 +}
 diff --git a/src/presets.ts b/src/presets.ts
@@ -607,14 +808,15 @@ index 3a8274b..68b35a9 100644
  	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = Object.assign({}, ...parts.map((p) => p.presets))
 diff --git a/src/presets/multidestination.ts b/src/presets/multidestination.ts
 new file mode 100644
-index 0000000..01c91eb
+index 0000000..0f8892c
 --- /dev/null
 +++ b/src/presets/multidestination.ts
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,246 @@
 +import { CompanionPresetDefinitions, CompanionPresetSection } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import type { OBSInstanceTypes } from '../main.js'
 +import { baseStyle, styleActive, stylePreview, styleProgram } from './style.js'
++import { groupVariableId } from '../multidestination.js'
 +
 +/**
 + * Multidestination Studio presets: shown only when the OBS plugin answers its vendor requests. They
@@ -795,7 +997,7 @@ index 0000000..01c91eb
 +		}
 +		presets['mdsCueStop'] = {
 +			type: 'simple',
-+			name: 'Stop Cue',
++			name: 'Stop Cue (fade to black)',
 +			style: baseStyle({ text: 'Stop\nCue' }),
 +			steps: [{ down: [{ actionId: 'mdsCue', options: { mode: 'stop', cue: '' } }], up: [] }],
 +			feedbacks: [],
@@ -809,8 +1011,40 @@ index 0000000..01c91eb
 +				templateVariableName: 'cue',
 +				templateValues: state.cues.map((c) => ({ name: c, value: c })),
 +			},
-+			{ id: 'mds-cue-stop', name: 'Stop Cue', type: 'simple', presets: ['mdsCueStop'] },
++			{ id: 'mds-cue-stop', name: 'Stop Cue', type: 'simple', presets: ['mdsCueStop', 'mdsCueStatus'] },
 +		)
++		presets['mdsCueStatus'] = {
++			type: 'simple',
++			keywords: ['cue', 'status', 'media', 'auto-follow'],
++			name: 'Running Cue Status',
++			style: baseStyle({ text: '$(obs:mds_running_cue)\n$(obs:mds_cue_status)' }),
++			steps: [{ down: [], up: [] }],
++			feedbacks: [],
++		}
++	}
++
++	/* One button per group (groups with the same name share it): shows the group name and the source
++	 * currently shown; each press shows the next source and hides the others. */
++	if (state.groups.length > 0) {
++		const groupPresets: string[] = []
++		for (const group of state.groups) {
++			const id = `mdsGroup_${groupVariableId(group.name)}`
++			presets[id] = {
++				type: 'simple',
++				keywords: ['group', 'source', 'cycle', group.name],
++				name: `Group ${group.name} (next source)`,
++				style: baseStyle({ text: `${group.name}\n$(obs:${groupVariableId(group.name)})` }),
++				steps: [
++					{
++						down: [{ actionId: 'mdsGroup', options: { mode: 'next', group: group.name, source: '' } }],
++						up: [],
++					},
++				],
++				feedbacks: [],
++			}
++			groupPresets.push(id)
++		}
++		definitions.push({ id: 'mds-groups', name: 'Group Source Selector', type: 'simple', presets: groupPresets })
 +	}
 +
 +	const sections: CompanionPresetSection<OBSInstanceTypes>[] = [
@@ -824,3 +1058,23 @@ index 0000000..01c91eb
 +
 +	return { presets, sections }
 +}
+diff --git a/src/variables.ts b/src/variables.ts
+index 6a72eab..621dc07 100644
+--- a/src/variables.ts
++++ b/src/variables.ts
+@@ -13,6 +13,7 @@ import {
+ 	isMediaInputKind,
+ 	isTextInputKind,
+ } from './constants.js'
++import { multidestinationVariableEntries } from './multidestination.js'
+ 
+ type VariableValue = string | number | boolean | (string | number)[] | undefined
+ 
+@@ -132,6 +133,7 @@ function dynamicVariableEntries(self: OBSInstance): VariableEntry[] {
+ 		entries.push(...sourceVariableEntries(source))
+ 	}
+ 	entries.push(...sceneVariableEntries(Array.from(self.states.scenes.values())))
++	entries.push(...multidestinationVariableEntries(self.multidestination))
+ 	return entries
+ }
+ 

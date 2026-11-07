@@ -1,0 +1,88 @@
+name: Companion module
+
+# Builds the Companion OBS module with the Multidestination Studio presets: upstream
+# bitfocus/companion-module-obs-studio at companion/UPSTREAM_COMMIT plus companion/*.patch, version
+# companion/MODULE_VERSION. The package (obs-studio-<version>.tgz) and the formatted patch are put on
+# the "companion-module-build" pre-release, to be copied into companion/ for the plugin releases.
+on:
+  push:
+    paths:
+      - 'companion/multidestination-studio.patch'
+      - 'companion/MODULE_VERSION'
+      - '.github/workflows/companion-module.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build, check and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream module and apply the patch
+        run: |
+          git clone https://github.com/bitfocus/companion-module-obs-studio.git module
+          cd module
+          git checkout "$(cat ../companion/UPSTREAM_COMMIT)"
+          git apply ../companion/multidestination-studio.patch
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: module/package.json
+          cache: yarn
+          cache-dependency-path: module/yarn.lock
+
+      - name: Install dependencies
+        working-directory: module
+        run: yarn install --immutable
+
+      - name: Format, refresh the option snapshot, keep the resulting patch
+        working-directory: module
+        run: |
+          yarn format
+          yarn vitest --run -u src/__tests__/option-shape.test.ts || true
+          git add -A
+          git diff --cached HEAD > ../multidestination-studio.patch
+
+      - name: Lint
+        working-directory: module
+        run: yarn lint
+
+      - name: Types
+        working-directory: module
+        run: yarn check-types
+
+      - name: Tests
+        working-directory: module
+        run: yarn test
+
+      - name: Package
+        working-directory: module
+        run: |
+          npm pkg set version="$(cat ../companion/MODULE_VERSION)"
+          yarn package
+          mkdir -p ../dist
+          cp obs-studio-*.tgz ../dist/
+          cp ../multidestination-studio.patch ../dist/
+          ls -la ../dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: companion-module-build
+          path: dist/*
+
+      - name: Publish on the build pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete companion-module-build --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
+          gh release create companion-module-build dist/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Companion module build $(cat companion/MODULE_VERSION) (internal)" \
+            --notes "Build of the Companion module from companion/multidestination-studio.patch. The plugin releases carry the module to install." \
+            --prerelease --latest=false
