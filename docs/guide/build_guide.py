@@ -347,7 +347,7 @@ def build():
                                             "Anyway."],
         ["Ubuntu", "multidestination-studio-1.1.6-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
-        ["Companion", "obs-studio-4.0.0-multidestination.2.tgz", "Optional: the Companion module (chapter 12)."],
+        ["Companion", "obs-studio-4.0.0-multidestination.3.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
     s += [P("Start OBS. A <b>Multidestination Studio</b> button appears in the OBS <b>Controls</b> dock, next to "
             "<b>Studio Mode</b>. The same command is in the <b>Tools</b> menu, and you can assign a hotkey to it "
@@ -728,24 +728,24 @@ def build():
     # 12 ------------------------------------------------------------
     s += [PageBreak(), P("12. Companion and Stream Deck", h1)]
     s += [P("Multidestination Studio comes with a version of Bitfocus Companion's <b>OBS Studio</b> module, "
-            "<b>obs-studio-4.0.0-multidestination.2.tgz</b>, attached to every release. It is the full OBS "
+            "<b>obs-studio-4.0.0-multidestination.3.tgz</b>, attached to every release. It is the full OBS "
             "Studio module plus a <b>Multidestination Studio</b> preset section, so a Stream Deck can drive the "
             "studio.")]
     s += [P("Installing the module", h2)]
     s += steps([
         "In OBS: <b>Tools → WebSocket Server Settings</b>, tick <b>Enable WebSocket server</b>, and note the "
         "port, the IP address and the password (<b>Show Connect Info</b>).",
-        "Download <b>obs-studio-4.0.0-multidestination.2.tgz</b> from the release. Do not unzip or rename it.",
+        "Download <b>obs-studio-4.0.0-multidestination.3.tgz</b> from the release. Do not unzip or rename it.",
         "In Companion: <b>Modules → Import module package</b>, and choose the file. It is added as one more "
-        "version of the OBS Studio module, named <b>4.0.0-multidestination.2</b>.",
+        "version of the OBS Studio module, named <b>4.0.0-multidestination.3</b>.",
         "In <b>Connections</b>, add an OBS Studio connection with this version, or, if you already have one, "
-        "<b>change its module version</b> from the official version to <b>4.0.0-multidestination.2</b>. "
+        "<b>change its module version</b> from the official version to <b>4.0.0-multidestination.3</b>. "
         "Importing the module does not do this for you. Enter the address, port and password. The connection "
         "turns green.",
         "In <b>Buttons → Presets → OBS</b>, open <b>Multidestination Studio</b> and drag the buttons onto your "
         "pages.",
     ])
-    s += shot("Companion: the OBS Studio module with version 4.0.0-multidestination.2.", 55,
+    s += shot("Companion: the OBS Studio module with version 4.0.0-multidestination.3.", 55,
               "companion-module.png")
     s += [P("The buttons", h2)]
     s += table([
@@ -761,7 +761,8 @@ def build():
         ["Cue to Preview", "Shows the cue in Preview; Transition then runs it (when Cues are on)",
          "Green in Preview, red while running"],
         ["Stop Cue", "Stops the running cue with a fade to black", "—"],
-        ["Running Cue Status", "Running cue, step and time left", "—"],
+        ["Running Cue Status", "Running cue, step and time left; “No cue running” when idle",
+         "Red while a cue runs"],
         ["Group", "One per source group: shows the source shown; each press shows the next one, in Preview "
                   "only (on air at the next transition)", "—"],
         ["Group: show …", "One per source of each group: shows it and hides the others", "Lit while shown"],
@@ -775,7 +776,7 @@ def build():
             "for other control software. The full guide is in the project repository "
             "(docs/companion-module.md).")]
     s += callout("An existing OBS connection keeps the official version after the import: you must switch it "
-                 "to 4.0.0-multidestination.2 yourself, on every computer running Companion. In <b>Modules → OBS "
+                 "to 4.0.0-multidestination.3 yourself, on every computer running Companion. In <b>Modules → OBS "
                  "Studio</b>, the plug icon shows the version in use. Keep the connection on this version: an "
                  "official version removes the Multidestination Studio buttons.", "Important")
 
@@ -836,7 +837,7 @@ def build():
                                           "the screen is connected."],
         ["No Multidestination Studio section in Companion", "Most often the OBS connection still uses the "
                                                             "official version: set its module version to "
-                                                            "4.0.0-multidestination.2. Then check that it is green "
+                                                            "4.0.0-multidestination.3. Then check that it is green "
                                                             "and that OBS runs with the plugin."],
         ["Companion refuses the module", "Import the .tgz file itself (not a .zip); update Companion."],
         ["The interface is in the wrong language", "Configuration Settings → Language, then restart OBS."],

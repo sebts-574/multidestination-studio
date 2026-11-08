@@ -29,7 +29,7 @@ Download the file for your system from the [Releases](https://github.com/sebts-5
 | Windows 10/11 (x64) | `multidestination-studio-1.1.6-windows-x64-installer.exe` | Installs to `C:\ProgramData\obs-studio\plugins\multidestination-studio`. The installer is not code-signed: Windows SmartScreen may ask you to confirm. |
 | macOS (Apple Silicon and Intel) | the `.pkg` package (universal) | Not signed: System Settings → Privacy & Security → Open Anyway. |
 | Ubuntu 24.04 (x86_64) | `multidestination-studio-1.1.6-x86_64-linux-gnu.deb` | `sudo apt install ./multidestination-studio-1.1.6-x86_64-linux-gnu.deb` |
-| Bitfocus Companion | `obs-studio-4.0.0-multidestination.2.tgz` | Companion OBS Studio module with the Multidestination Studio presets: see [Companion / Stream Deck](docs/companion-module.md). |
+| Bitfocus Companion | `obs-studio-4.0.0-multidestination.3.tgz` | Companion OBS Studio module with the Multidestination Studio presets: see [Companion / Stream Deck](docs/companion-module.md). |
 
 Then open OBS and click **Multidestination Studio** in the Controls dock (or Tools → Multidestination Studio).
 
