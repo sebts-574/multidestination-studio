@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0D0F14"/>
+  <!-- source -->
+  <rect x="64" y="206" width="124" height="100" rx="18" fill="#1B1F29" stroke="#3A3F4E" stroke-width="6"/>
+  <!-- routes -->
+  <g fill="none" stroke-width="16" stroke-linecap="round">
+    <path d="M188 256 C 250 256, 250 138, 312 138" stroke="#E2382F"/>
+    <path d="M188 256 L 312 256" stroke="#C9CCD6"/>
+    <path d="M188 256 C 250 256, 250 374, 312 374" stroke="#17A866"/>
+  </g>
+  <!-- destinations -->
+  <g fill="#1B1F29" stroke="#3A3F4E" stroke-width="6">
+    <rect x="312" y="100" width="136" height="76" rx="16"/>
+    <rect x="312" y="218" width="136" height="76" rx="16"/>
+    <rect x="312" y="336" width="136" height="76" rx="16"/>
+  </g>
+  <!-- tally lamps -->
+  <circle cx="348" cy="138" r="14" fill="#E2382F"/>
+  <circle cx="348" cy="256" r="14" fill="#C9CCD6"/>
+  <circle cx="348" cy="374" r="14" fill="#17A866"/>
+</svg>
