@@ -1,8 +1,8 @@
 diff --git a/companion/CHANGELOG.md b/companion/CHANGELOG.md
-index e578272..3fb34a5 100644
+index e578272..f49e79a 100644
 --- a/companion/CHANGELOG.md
 +++ b/companion/CHANGELOG.md
-@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  
  ## [Unreleased]
  
@@ -14,12 +14,14 @@ index e578272..3fb34a5 100644
 +  Matching actions and feedbacks use the plugin's obs-websocket vendor requests and events
 +- Multidestination Studio: group source selector (one button per group, next / previous / chosen
 +  source), running cue status and variables, Stop Cue fades to black
++- Multidestination Studio: the Running Cue Status button shows "No cue running" when idle, the running cue and
++  its status otherwise, and turns red while a cue runs
 +
  ### Fixed
  
  - Variables from 3.x work again in the scene and source of "Scene in Program", "Scene in Preview"
 diff --git a/companion/HELP.md b/companion/HELP.md
-index 148054e..7a9545b 100644
+index 148054e..8802dc1 100644
 --- a/companion/HELP.md
 +++ b/companion/HELP.md
 @@ -202,6 +202,31 @@ The available per-source variables depend on the source type and capabilities re
@@ -45,7 +47,7 @@ index 148054e..7a9545b 100644
 +  group and hides the others.
 +
 +Variables: `mds_preview_scene`, `mds_program_scene`, `mds_preview_cue`, `mds_running_cue`,
-+`mds_cue_step`, `mds_cue_remaining`, `mds_cue_media`, `mds_cue_status`, and `mds_group_<group>` (source
++`mds_cue_step`, `mds_cue_remaining`, `mds_cue_media`, `mds_cue_status`, `mds_cue_button`, and `mds_group_<group>` (source
 +shown in each group).
 +
 +The matching actions and feedbacks are listed under "Multidestination Studio". They use the plugin's
@@ -714,10 +716,10 @@ index bdd7a0e..b9a65e7 100644
  }
 diff --git a/src/feedbacks/multidestination.ts b/src/feedbacks/multidestination.ts
 new file mode 100644
-index 0000000..265f8d2
+index 0000000..1b9ca67
 --- /dev/null
 +++ b/src/feedbacks/multidestination.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,119 @@
 +import { CompanionFeedbackDefinitions } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import { styleActive, stylePreview, styleProgram } from '../presets/style.js'
@@ -728,6 +730,7 @@ index 0000000..265f8d2
 +	mdsAfterTransition: { type: 'boolean'; options: Record<string, never> }
 +	mdsDestinationsShown: { type: 'boolean'; options: Record<string, never> }
 +	mdsCue: { type: 'boolean'; options: { cue: string; state: 'running' | 'preview' } }
++	mdsCueRunning: { type: 'boolean'; options: Record<string, never> }
 +	mdsGroupSource: { type: 'boolean'; options: { group: string; source: string } }
 +}
 +
@@ -805,6 +808,15 @@ index 0000000..265f8d2
 +					feedback.options.state === 'running' ? self.multidestination.runningCue : self.multidestination.previewCue
 +				return self.multidestination.available && current === feedback.options.cue
 +			},
++		},
++
++		mdsCueRunning: {
++			type: 'boolean',
++			name: 'Multidestination Studio - A Cue Is Running',
++			description: 'If any cue is running, change the style of the button',
++			defaultStyle: styleProgram(),
++			options: [],
++			callback: () => self.multidestination.available && self.multidestination.runningCue !== '',
 +		},
 +
 +		mdsGroupSource: {
@@ -886,10 +898,10 @@ index 6658168..8484ede 100644
  
 diff --git a/src/multidestination.ts b/src/multidestination.ts
 new file mode 100644
-index 0000000..f558a8d
+index 0000000..7bae2f2
 --- /dev/null
 +++ b/src/multidestination.ts
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,239 @@
 +import { createModuleLogger, type JsonObject } from '@companion-module/base'
 +import type OBSInstance from './main.js'
 +import { validName } from './utils.js'
@@ -992,6 +1004,13 @@ index 0000000..f558a8d
 +	return step
 +}
 +
++/** Text of the Running Cue Status button: the running cue and its status, or 'No cue running'. */
++export function cueButtonText(state: MultidestinationState): string {
++	if (!state.runningCue) return 'No cue running'
++	const status = cueStatusText(state)
++	return status ? `${state.runningCue}\n${status}` : state.runningCue
++}
++
 +export function groupVariableId(group: string): string {
 +	return `mds_group_${validName(group)}`
 +}
@@ -1023,6 +1042,11 @@ index 0000000..f558a8d
 +				state.cuePhase === 'media' ? `${formatClock(state.cueMediaTime)} / ${formatClock(state.cueMediaDuration)}` : '',
 +		},
 +		{ id: 'mds_cue_status', name: 'Multidestination Studio - Running cue status', value: cueStatusText(state) },
++		{
++			id: 'mds_cue_button',
++			name: 'Multidestination Studio - Running cue and status, or "No cue running"',
++			value: cueButtonText(state),
++		},
 +	]
 +	for (const group of state.groups) {
 +		entries.push({
@@ -1076,7 +1100,14 @@ index 0000000..f558a8d
 +	}
 +}
 +
-+const FEEDBACKS = ['mdsScene', 'mdsAfterTransition', 'mdsDestinationsShown', 'mdsCue', 'mdsGroupSource'] as const
++const FEEDBACKS = [
++	'mdsScene',
++	'mdsAfterTransition',
++	'mdsDestinationsShown',
++	'mdsCue',
++	'mdsCueRunning',
++	'mdsGroupSource',
++] as const
 +
 +function groupsKey(groups: MultidestinationGroup[]): string {
 +	return groups.map((g) => `${g.name}\t${g.sources.join('\t')}`).join('\n')
@@ -1132,10 +1163,10 @@ index 3a8274b..68b35a9 100644
  	const presets: CompanionPresetDefinitions<OBSInstanceTypes> = Object.assign({}, ...parts.map((p) => p.presets))
 diff --git a/src/presets/multidestination.ts b/src/presets/multidestination.ts
 new file mode 100644
-index 0000000..d1456ba
+index 0000000..0960e1d
 --- /dev/null
 +++ b/src/presets/multidestination.ts
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,266 @@
 +import { CompanionPresetDefinitions, CompanionPresetSection } from '@companion-module/base'
 +import type OBSInstance from '../main.js'
 +import type { OBSInstanceTypes } from '../main.js'
@@ -1342,9 +1373,10 @@ index 0000000..d1456ba
 +			type: 'simple',
 +			keywords: ['cue', 'status', 'media', 'auto-follow'],
 +			name: 'Running Cue Status',
-+			style: baseStyle({ text: '$(obs:mds_running_cue)\n$(obs:mds_cue_status)' }),
++			previewStyle: baseStyle({ text: 'Running\nCue Status' }),
++			style: baseStyle({ text: '$(obs:mds_cue_button)' }),
 +			steps: [{ down: [], up: [] }],
-+			feedbacks: [],
++			feedbacks: [{ feedbackId: 'mdsCueRunning', options: {}, style: styleProgram() }],
 +		}
 +	}
 +
