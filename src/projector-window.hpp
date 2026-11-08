@@ -49,6 +49,7 @@ public:
 protected:
 	void keyPressEvent(QKeyEvent *event) override;
 	void mouseDoubleClickEvent(QMouseEvent *event) override;
+	bool event(QEvent *event) override;
 
 private:
 	void ScreenRemoved(QScreen *screen);
@@ -64,4 +65,6 @@ private:
 	/* Taille native de l'écran de sortie (pixels physiques). */
 	std::atomic<uint32_t> nativeW{0};
 	std::atomic<uint32_t> nativeH{0};
+	/* macOS : réglages de fenêtre de sortie appliqués (voir macos-window). */
+	bool macOutput = false;
 };

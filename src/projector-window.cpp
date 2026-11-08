@@ -22,6 +22,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "render-helpers.hpp"
 #include "text.hpp"
 #include "qt-display.hpp"
+#ifdef Q_OS_MACOS
+#include "macos-window.hpp"
+#endif
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
@@ -119,10 +122,14 @@ void ProjectorWindow::Start()
 		setGeometry(target->geometry());
 #ifdef Q_OS_MACOS
 		/* Pas de plein écran natif sur macOS : il crée un Space dédié
-         * qui masque les autres écrans et se cache dès qu'on clique
-         * dans OBS. Une fenêtre sans bord couvrant l'écran reste
-         * toujours visible. */
+		 * qui masque les autres écrans et se cache dès qu'on clique
+		 * dans OBS. Une fenêtre sans bord couvrant l'écran, présente sur
+		 * tous les Spaces et au-dessus de la barre des menus, reste
+		 * toujours visible (sauf sur l'écran de travail). */
 		showNormal();
+		macOutput = !operatorScreen;
+		if (macOutput)
+			MacOSWindow::MakeOutputWindow(this);
 #else
 		showFullScreen();
 #endif
@@ -170,6 +177,10 @@ void ProjectorWindow::mouseDoubleClickEvent(QMouseEvent *event)
 		setWindowFlag(Qt::FramelessWindowHint, false);
 		setWindowFlag(Qt::WindowStaysOnTopHint, false);
 		showNormal();
+#ifdef Q_OS_MACOS
+		macOutput = false;
+		MacOSWindow::MakeNormalWindow(this);
+#endif
 		resize(960, 540);
 		unsetCursor();
 		activateWindow();
@@ -178,4 +189,29 @@ void ProjectorWindow::mouseDoubleClickEvent(QMouseEvent *event)
 		setCursor(Qt::BlankCursor);
 	}
 	QWidget::mouseDoubleClickEvent(event);
+}
+
+bool ProjectorWindow::event(QEvent *event)
+{
+	const bool result = QWidget::event(event);
+#ifdef Q_OS_MACOS
+	/* Qt réapplique son propre niveau de fenêtre à l'affichage et quand
+	 * l'activation change : les réglages de sortie sont remis juste après. */
+	switch (event->type()) {
+	case QEvent::Show:
+	case QEvent::WindowActivate:
+	case QEvent::WindowDeactivate:
+	case QEvent::ApplicationStateChange:
+	case QEvent::WindowStateChange:
+		if (macOutput)
+			QTimer::singleShot(0, this, [this]() {
+				if (macOutput && isVisible())
+					MacOSWindow::MakeOutputWindow(this);
+			});
+		break;
+	default:
+		break;
+	}
+#endif
+	return result;
 }

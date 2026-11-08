@@ -4,6 +4,11 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCO
 
 project(${_name} VERSION ${_version})
 
+# macOS : fenêtres de sortie réglées en Objective-C++ (src/macos-window.mm).
+if(APPLE)
+  enable_language(OBJC OBJCXX)
+endif()
+
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
 
@@ -96,5 +101,10 @@ target_sources(
     src/remote-control.hpp
     src/obs-websocket-api.h
 )
+
+if(APPLE)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/macos-window.mm src/macos-window.hpp)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE "-framework AppKit")
+endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
