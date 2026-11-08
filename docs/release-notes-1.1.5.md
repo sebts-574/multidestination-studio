@@ -61,6 +61,6 @@ Everything new since **1.1.0**. Windows, macOS and Linux · OBS Studio 31.1 or l
 - **macOS**: universal `.pkg` (not signed: System Settings → Privacy & Security → Open Anyway).
 - **Ubuntu 24.04**: `multidestination-studio-1.1.5-x86_64-linux-gnu.deb` (`sudo apt install ./multidestination-studio-1.1.5-x86_64-linux-gnu.deb`).
 - **Companion**: `obs-studio-4.0.0-multidestination.2.tgz`, see above.
-- **User guide (PDF)**: [Multidestination-Studio-1.1.5-User-Guide.pdf](https://github.com/sebts-574/multidestination-studio/blob/main/docs/Multidestination-Studio-1.1.5-User-Guide.pdf).
+- **User guide (PDF)**: [Multidestination-Studio-1.2.1-User-Guide.pdf](https://github.com/sebts-574/multidestination-studio/blob/main/docs/Multidestination-Studio-1.2.1-User-Guide.pdf) (latest guide).
 
 Close OBS before installing. Requires OBS Studio 31.1 or later.

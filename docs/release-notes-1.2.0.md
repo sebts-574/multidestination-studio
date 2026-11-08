@@ -24,6 +24,6 @@ The Companion module is unchanged: `obs-studio-4.0.0-multidestination.3.tgz` (at
 - **Windows 10/11**: `multidestination-studio-1.2.0-windows-x64-installer.exe` (not code-signed: SmartScreen may ask for confirmation).
 - **macOS**: universal `.pkg` (not signed: System Settings → Privacy & Security → Open Anyway).
 - **Ubuntu 24.04**: `multidestination-studio-1.2.0-x86_64-linux-gnu.deb` (`sudo apt install ./multidestination-studio-1.2.0-x86_64-linux-gnu.deb`).
-- **User guide (PDF)**: [Multidestination-Studio-1.2.0-User-Guide.pdf](https://github.com/sebts-574/multidestination-studio/blob/main/docs/Multidestination-Studio-1.2.0-User-Guide.pdf).
+- **User guide (PDF)**: [Multidestination-Studio-1.2.1-User-Guide.pdf](https://github.com/sebts-574/multidestination-studio/blob/main/docs/Multidestination-Studio-1.2.1-User-Guide.pdf) (latest guide).
 
 Close OBS before installing. Requires OBS Studio 31.1 or later.

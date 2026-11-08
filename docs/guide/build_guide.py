@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.2.0 - User Guide (PDF).
+"""Multidestination Studio 1.2.1 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -23,7 +23,7 @@ from reportlab.pdfbase.pdfmetrics import registerFontFamily
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "Multidestination-Studio-User-Guide.pdf"
 SHOTS = sys.argv[2] if len(sys.argv) > 2 else "shots"
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS = os.path.join(HERE, "fonts")
@@ -400,7 +400,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=22 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.2.0 - User Guide", author="sebts",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.2.1 - User Guide", author="sebts",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -486,11 +486,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.2.0-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.2.1-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.2.0-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.2.1-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.3.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
