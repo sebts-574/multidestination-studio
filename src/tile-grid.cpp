@@ -525,6 +525,14 @@ bool TileWidget::ToCanvas(const QPointF &pos, float &x, float &y, float &screenS
 	return true;
 }
 
+bool TileWidget::CanvasAt(const QPoint &globalPos, float &x, float &y) const
+{
+	float s = 0.0f;
+	if (!display->rect().contains(display->mapFromGlobal(globalPos)))
+		return false;
+	return ToCanvas(QPointF(display->mapFromGlobal(globalPos)), x, y, s);
+}
+
 OBSSceneItem TileWidget::SelectedSceneItem() const
 {
 	const int64_t id = selectedId.load();

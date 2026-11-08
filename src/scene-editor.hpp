@@ -109,6 +109,10 @@ void RememberSizes(obs_scene_t *scene);
 
 /* Dessin de la sélection et des guides de centrage (thread graphique,
  * coordonnées canvas). */
+/* Cadre (source « frame ») le plus haut sous le point, au premier niveau ou
+ * dans un groupe visible ; nullptr s'il n'y en a pas. */
+obs_sceneitem_t *FrameAt(obs_scene_t *top, float x, float y);
+
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH);
 /* Sélection de plusieurs sources (ids : premier niveau ou dans un groupe). */
 void DrawMultiSelection(obs_scene_t *scene, const std::vector<int64_t> &ids, float screenScale, uint32_t canvasW,

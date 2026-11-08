@@ -27,6 +27,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "reorder-list.hpp"
 #include "manage-destinations.hpp"
 #include "show.hpp"
+#include "frame-source.hpp"
+#include "scene-editor.hpp"
 #include "blend-editor.hpp"
 #include "cues.hpp"
 #include "cues-dock.hpp"
@@ -1127,7 +1129,7 @@ void StudioWindow::Toggle()
 		Open();
 }
 
-void StudioWindow::Open()
+void StudioWindow::Open(bool fullScreen)
 {
 	/* La destination par défaut est protégée comme les autres par le mode
 	 * Studio d'OBS (« Dupliquer la scène ») : on l'active si besoin. */
@@ -1148,8 +1150,12 @@ void StudioWindow::Open()
 	 * fenêtres). F11 reste disponible. */
 	if (main && main->screen())
 		setGeometry(main->screen()->availableGeometry());
-	showMaximized();
+	if (fullScreen)
+		showFullScreen();
+	else
+		showMaximized();
 #else
+	(void)fullScreen;
 	if (main && main->screen())
 		setGeometry(main->screen()->geometry());
 	showFullScreen();
@@ -2690,7 +2696,7 @@ void StudioWindow::CreateNewSource(const char *typeId)
 	OpenOnStudio([created]() { obs_frontend_open_source_properties(created); });
 }
 
-void StudioWindow::AddFiles(const QStringList &paths, TileWidget *target)
+void StudioWindow::AddFiles(const QStringList &paths, TileWidget *target, const QPoint *globalPos)
 {
 	if (target)
 		SetActiveTile(target);
@@ -2698,6 +2704,12 @@ void StudioWindow::AddFiles(const QStringList &paths, TileWidget *target)
 		QMessageBox::information(this, Tr("MDS.AddSource"), Tr("MDS.SelectSceneFirst"));
 		return;
 	}
+
+	/* Déposé sur un cadre (frame) : les fichiers vont dans le cadre. */
+	OBSSceneItem frame;
+	float x = 0.0f, y = 0.0f;
+	if (target && globalPos && target->CanvasAt(*globalPos, x, y))
+		frame = SceneEditor::FrameAt(ActiveScene(), x, y);
 
 	for (const QString &path : paths) {
 		const char *key = nullptr;
@@ -2716,9 +2728,133 @@ void StudioWindow::AddFiles(const QStringList &paths, TileWidget *target)
 
 		const QString name = UniqueSourceName(QFileInfo(path).completeBaseName());
 		OBSSourceAutoRelease source = obs_source_create(type, name.toUtf8().constData(), settings, nullptr);
-		if (source)
+		if (!source)
+			continue;
+		if (frame)
+			AddToFrame(source, frame);
+		else
 			AddExistingSource(source, true);
 	}
+}
+
+/* Source ajoutée dans un cadre : en haut du groupe du cadre, ajustée au
+ * cadre en gardant ses proportions et centrée. */
+void StudioWindow::AddToFrame(obs_source_t *source, obs_sceneitem_t *frame)
+{
+	obs_scene_t *top = ActiveScene();
+	obs_scene_t *parent = frame ? obs_sceneitem_get_scene(frame) : nullptr;
+	SceneEditor::Box box;
+	if (!top || !parent || !SceneEditor::GetBox(frame, box)) {
+		AddExistingSource(source, true);
+		return;
+	}
+
+	Undo::PushSceneState(top);
+	obs_sceneitem_t *item = obs_scene_add(parent, source);
+	if (!item)
+		return;
+
+	struct obs_transform_info info = {};
+	obs_sceneitem_get_info2(item, &info);
+	vec2_set(&info.pos, box.x, box.y);
+	vec2_set(&info.scale, 1.0f, 1.0f);
+	info.rot = 0.0f;
+	info.alignment = OBS_ALIGN_LEFT | OBS_ALIGN_TOP;
+	info.bounds_type = OBS_BOUNDS_SCALE_INNER;
+	info.bounds_alignment = OBS_ALIGN_CENTER;
+	vec2_set(&info.bounds, box.w, box.h);
+	info.crop_to_bounds = false;
+	obs_sceneitem_set_info2(item, &info);
+
+	if (obs_source_get_output_flags(source) & OBS_SOURCE_CONTROLLABLE_MEDIA) {
+		OBSWeakSource weak = OBSGetWeakRef(source);
+		QTimer::singleShot(400, this, [weak]() {
+			OBSSource src = OBSGetStrongRef(weak);
+			if (src && !obs_source_active(src)) {
+				obs_source_media_play_pause(src, true);
+				obs_source_media_set_time(src, 0);
+			}
+		});
+	}
+
+	RefreshSources();
+	SelectItem(obs_sceneitem_get_id(item));
+	AfterEdit();
+}
+
+/* Nouveau cadre : un groupe qui contient une source « frame » de la taille
+ * choisie, centré dans la destination. */
+void StudioWindow::AddFrame()
+{
+	obs_scene_t *s = ActiveScene();
+	if (!s || !activeDest) {
+		QMessageBox::information(this, Tr("MDS.AddSource"), Tr("MDS.SelectSceneFirst"));
+		return;
+	}
+
+	QDialog dialog(this);
+	dialog.setWindowTitle(Tr("MDS.FrameTitle"));
+	auto *form = new QFormLayout(&dialog);
+	auto *nameEdit = new QLineEdit(UniqueSourceName(Tr("MDS.FrameName")), &dialog);
+	auto *widthSpin = new QSpinBox(&dialog);
+	auto *heightSpin = new QSpinBox(&dialog);
+	for (QSpinBox *spin : {widthSpin, heightSpin}) {
+		spin->setRange(1, 16384);
+		spin->setSuffix(" px");
+	}
+	widthSpin->setValue(int(activeDest->Width()));
+	heightSpin->setValue(int(activeDest->Height()));
+	form->addRow(Tr("MDS.Name"), nameEdit);
+	form->addRow(Tr("MDS.FrameWidth"), widthSpin);
+	form->addRow(Tr("MDS.FrameHeight"), heightSpin);
+	auto *hint = new QLabel(Tr("MDS.FrameHint"), &dialog);
+	hint->setWordWrap(true);
+	form->addRow(hint);
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	buttons->button(QDialogButtonBox::Cancel)->setText(Tr("MDS.Cancel"));
+	form->addRow(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+
+	const QString name = nameEdit->text().trimmed().isEmpty() ? UniqueSourceName(Tr("MDS.FrameName"))
+								  : nameEdit->text().trimmed();
+	OBSSourceAutoRelease existing = obs_get_source_by_name(name.toUtf8().constData());
+	if (existing) {
+		QMessageBox::warning(this, Tr("MDS.FrameTitle"), Tr("MDS.SourceExists"));
+		return;
+	}
+
+	const int w = widthSpin->value();
+	const int h = heightSpin->value();
+	OBSDataAutoRelease settings = obs_data_create();
+	obs_data_set_int(settings, "width", w);
+	obs_data_set_int(settings, "height", h);
+	const QString frameName = UniqueSourceName(Tr("MDS.FrameSourceName").arg(name));
+	OBSSourceAutoRelease frame =
+		obs_source_create(FrameSource::ID, frameName.toUtf8().constData(), settings, nullptr);
+	if (!frame)
+		return;
+
+	Undo::PushSceneState(s);
+	obs_sceneitem_t *frameItem = obs_scene_add(s, frame);
+	if (!frameItem)
+		return;
+	obs_sceneitem_set_alignment(frameItem, OBS_ALIGN_LEFT | OBS_ALIGN_TOP);
+	struct vec2 pos;
+	vec2_set(&pos, std::round((float(activeDest->Width()) - float(w)) * 0.5f),
+		 std::round((float(activeDest->Height()) - float(h)) * 0.5f));
+	obs_sceneitem_set_pos(frameItem, &pos);
+	/* Verrouillé : un clic dans le cadre sélectionne le groupe (on déplace
+	 * et redimensionne le cadre entier). */
+	obs_sceneitem_set_locked(frameItem, true);
+
+	obs_sceneitem_t *group = obs_scene_insert_group(s, name.toUtf8().constData(), &frameItem, 1);
+	RefreshSources();
+	if (group)
+		SelectItem(obs_sceneitem_get_id(group));
+	AfterEdit();
 }
 
 void StudioWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -2743,7 +2879,7 @@ void StudioWindow::dropEvent(QDropEvent *event)
 	TileWidget *target = pvwGrid->TileAt(global);
 	if (!target && modifyProgram)
 		target = pgmGrid->TileAt(global);
-	AddFiles(paths, target);
+	AddFiles(paths, target, &global);
 	event->acceptProposedAction();
 }
 
@@ -2762,6 +2898,10 @@ void StudioWindow::FillAddSourceMenu(QMenu *menu)
 		menu->addAction(Tr("MDS.SelectSceneFirst"))->setEnabled(false);
 		return;
 	}
+
+	/* Cadre vide où déposer des fichiers. */
+	connect(menu->addAction(Tr("MDS.AddFrame")), &QAction::triggered, this, &StudioWindow::AddFrame);
+	menu->addSeparator();
 
 	/* Nouveaux types de sources, comme le « + » d'OBS. */
 	std::vector<std::pair<QString, std::string>> types;
@@ -2798,7 +2938,7 @@ void StudioWindow::FillAddSourceMenu(QMenu *menu)
 		[](void *param, obs_source_t *source) {
 			auto *l = static_cast<std::vector<OBSSource> *>(param);
 			if (obs_source_get_type(source) == OBS_SOURCE_TYPE_INPUT &&
-			    (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO))
+			    (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) && !FrameSource::Is(source))
 				l->emplace_back(source);
 			return true;
 		},

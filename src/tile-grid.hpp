@@ -78,6 +78,8 @@ public:
 	 * déplacent et se redimensionnent ensemble dans l'aperçu. */
 	void SetMultiSelection(const std::vector<int64_t> &ids);
 	int64_t SelectedItem() const { return selectedId.load(); }
+	/* Point de l'écran en coordonnées de la destination. */
+	bool CanvasAt(const QPoint &globalPos, float &x, float &y) const;
 	void RefreshHeader();
 
 	/* Événements transmis par l'affichage. */

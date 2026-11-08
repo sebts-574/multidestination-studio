@@ -59,7 +59,8 @@ public:
 	~StudioWindow() override;
 
 	void Toggle();
-	void Open();
+	/* fullScreen : plein écran aussi sur macOS (ouverture au démarrage). */
+	void Open(bool fullScreen = false);
 	/* Ouvre chaque destination en plein écran sur son écran de sortie. */
 	void OpenAllOutputs();
 	void Close();
@@ -124,7 +125,11 @@ private:
 	void FillAddSourceMenu(QMenu *menu);
 	void CreateNewSource(const char *typeId);
 	void AddExistingSource(obs_source_t *source, bool freshMedia = false);
-	void AddFiles(const QStringList &paths, TileWidget *target);
+	/* globalPos : point de dépôt ; sur un cadre (frame), les fichiers s'y
+	 * placent, ajustés au cadre. */
+	void AddFiles(const QStringList &paths, TileWidget *target, const QPoint *globalPos = nullptr);
+	void AddFrame();
+	void AddToFrame(obs_source_t *source, obs_sceneitem_t *frame);
 	void ShowAddSourceMenu();
 	void ShowItemMenu(const QPoint &globalPos);
 

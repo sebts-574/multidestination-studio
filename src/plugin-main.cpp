@@ -21,6 +21,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "manager.hpp"
 #include "remote-control.hpp"
 #include "show.hpp"
+#include "frame-source.hpp"
 #include "studio-window.hpp"
 #include "tile-grid.hpp"
 #include "text.hpp"
@@ -157,7 +158,7 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 		if (m.LaunchOnStartup() && studio)
 			QTimer::singleShot(500, studio.data(), []() {
 				if (studio && !studio->isVisible())
-					studio->Open();
+					studio->Open(true);
 			});
 		/* Réglage « ouvrir les destinations sur leur sortie ». */
 		if (m.OpenOutputsOnStartup() && studio)
@@ -273,6 +274,7 @@ bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "plugin chargé (version %s)", PLUGIN_VERSION);
 	BlendRenderer::Init();
+	FrameSource::Register();
 	return true;
 }
 

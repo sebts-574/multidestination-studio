@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
+#include "frame-source.hpp"
 #include "remote-control.hpp"
 #include "cues.hpp"
 #include "manager.hpp"
@@ -286,7 +287,9 @@ std::vector<obs_sceneitem_t *> GroupChildren(obs_sceneitem_t *group)
 		obs_sceneitem_group_get_scene(group),
 		[](obs_scene_t *, obs_sceneitem_t *child, void *param) {
 			auto *list = static_cast<std::vector<obs_sceneitem_t *> *>(param);
-			list->insert(list->begin(), child);
+			/* Le cadre (frame) n'est pas une source à choisir. */
+			if (!FrameSource::IsItem(child))
+				list->insert(list->begin(), child);
 			return true;
 		},
 		&children);

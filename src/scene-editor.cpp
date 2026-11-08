@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "scene-editor.hpp"
 #include "render-helpers.hpp"
+#include "frame-source.hpp"
 
 #include <graphics/matrix4.h>
 #include <graphics/vec3.h>
@@ -38,6 +39,7 @@ static constexpr uint32_t OUTSIDE_COLOR = 0xFFFF9500;   /* orange : dépasse du 
 static constexpr uint32_t HANDLE_COLOR = 0xFFFFFFFF;
 static constexpr uint32_t GUIDE_COLOR = 0xFF2ECC40;
 static constexpr uint32_t PLACEHOLDER_COLOR = 0xB0FFFFFF;
+static constexpr uint32_t FRAME_COLOR = 0xD000C8FF;
 
 static void AlignOffset(uint32_t align, float w, float h, float &ox, float &oy)
 {
@@ -603,6 +605,89 @@ void CopyLayout(obs_scene_t *from, obs_scene_t *to)
 		obs_sceneitem_set_order_position(order[i], int(i));
 }
 
+obs_sceneitem_t *FrameAt(obs_scene_t *top, float x, float y)
+{
+	struct Ctx {
+		obs_scene_t *top;
+		float x, y;
+		obs_sceneitem_t *found;
+	} ctx{top, x, y, nullptr};
+	auto check = [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+		auto *c = static_cast<Ctx *>(param);
+		Box b;
+		if (obs_sceneitem_visible(item) && FrameSource::IsItem(item) && GetWorldBox(c->top, item, b) &&
+		    b.Contains(c->x, c->y))
+			c->found = item;
+		return true;
+	};
+	/* Du bas vers le haut : le dernier trouvé est le plus haut. */
+	struct Outer {
+		Ctx *ctx;
+		bool (*check)(obs_scene_t *, obs_sceneitem_t *, void *);
+	} outer{&ctx, check};
+	obs_scene_enum_items(
+		top,
+		[](obs_scene_t *scene, obs_sceneitem_t *item, void *param) {
+			auto *o = static_cast<Outer *>(param);
+			if (obs_sceneitem_is_group(item)) {
+				if (obs_sceneitem_visible(item))
+					obs_scene_enum_items(obs_sceneitem_group_get_scene(item), o->check, o->ctx);
+				return true;
+			}
+			return o->check(scene, item, o->ctx);
+		},
+		&outer);
+	return ctx.found;
+}
+
+/* Contour en pointillés d'un cadre vide, toujours visible dans le studio. */
+static void DrawDashedOutline(const Box &b, float px, uint32_t color)
+{
+	const float dash = 8.0f * px;
+	const float t = 1.5f * px;
+	for (float x = b.x; x < b.x + b.w; x += 2.0f * dash) {
+		const float len = std::min(dash, b.x + b.w - x);
+		DrawSolidRect(x, b.y, len, t, color);
+		DrawSolidRect(x, b.y + b.h - t, len, t, color);
+	}
+	for (float y = b.y; y < b.y + b.h; y += 2.0f * dash) {
+		const float len = std::min(dash, b.y + b.h - y);
+		DrawSolidRect(b.x, y, t, len, color);
+		DrawSolidRect(b.x + b.w - t, y, t, len, color);
+	}
+}
+
+static void DrawFrames(obs_scene_t *top, float px)
+{
+	struct Ctx {
+		obs_scene_t *top;
+		float px;
+	} ctx{top, px};
+	auto draw = [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+		auto *c = static_cast<Ctx *>(param);
+		Box b;
+		if (obs_sceneitem_visible(item) && FrameSource::IsItem(item) && GetWorldBox(c->top, item, b))
+			DrawDashedOutline(b, c->px, FRAME_COLOR);
+		return true;
+	};
+	struct Outer {
+		Ctx *ctx;
+		bool (*draw)(obs_scene_t *, obs_sceneitem_t *, void *);
+	} outer{&ctx, draw};
+	obs_scene_enum_items(
+		top,
+		[](obs_scene_t *scene, obs_sceneitem_t *item, void *param) {
+			auto *o = static_cast<Outer *>(param);
+			if (obs_sceneitem_is_group(item)) {
+				if (obs_sceneitem_visible(item))
+					obs_scene_enum_items(obs_sceneitem_group_get_scene(item), o->draw, o->ctx);
+				return true;
+			}
+			return o->draw(scene, item, o->ctx);
+		},
+		&outer);
+}
+
 void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32_t canvasW, uint32_t canvasH)
 {
 	if (!scene || screenScale <= 0.0f)
@@ -623,6 +708,9 @@ void DrawSelection(obs_scene_t *scene, int64_t itemId, float screenScale, uint32
 			return true;
 		},
 		const_cast<float *>(&px));
+
+	/* Cadres (frames), même vides. */
+	DrawFrames(scene, px);
 
 	/* Source sélectionnée, au premier niveau ou dans un groupe. */
 	obs_sceneitem_t *item = FindItem(scene, itemId);

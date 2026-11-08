@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.8 - User Guide (PDF).
+"""Multidestination Studio 1.1.9 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.8 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.9 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.8")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.9")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.8 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.9 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -342,11 +342,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.8-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.9-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.8-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.9-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.3.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -365,7 +365,8 @@ def build():
             "it. When the OBS window is restored after being minimized, the studio comes back in front; to work "
             "in the OBS window, click it or choose it with Alt+Tab (Cmd+Tab on macOS).")]
     s += callout("To have the studio open automatically every time OBS starts, turn on <b>Configuration "
-                 "Settings → Startup Settings → Launch Multidestination Studio on startup</b>.")
+                 "Settings → Startup Settings → Launch Multidestination Studio on startup</b>. It then opens in "
+                 "full screen, also on macOS.")
 
     # 4 -------------------------------------------------------------
     s += [PageBreak(), P("4. A tour of the studio", h1)]
@@ -521,6 +522,21 @@ def build():
         "<b>+</b> in the Sources dock lists every OBS source type, plus existing sources and other scenes.",
         "Drag image or video files from your computer onto a destination tile. They are added at their "
         "original size, centred; a new video shows its first frame without playing.",
+    ])
+    s += [P("Frames", h2)]
+    s += [P("A <b>frame</b> is an empty area of a destination where you drop files. <b>+</b> in the Sources "
+            "dock → <b>Frame…</b> asks for its name, width and height (the size of the destination by default) "
+            "and adds it, centred, to the active destination.")]
+    s += bullets([
+        "The frame is an OBS group holding an invisible, locked frame source. In the studio it shows as a "
+        "dotted blue outline, even when empty; nothing of it appears on the outputs.",
+        "Drop image or video files from your computer onto the frame: each one is put in the frame's group, "
+        "fitted to the frame with its proportions kept and centred. Several files dropped are stacked, the "
+        "last one on top.",
+        "Click inside the frame to select its group, then move or resize it like any group: its contents "
+        "follow. The frame size can also be changed in the properties of the frame source.",
+        "With Companion, the Group Source Selector of a frame cycles through the files in it; the frame "
+        "source itself is not one of the choices.",
     ])
     s += [P("Visibility, lock and folders", h2)]
     s += bullets([
