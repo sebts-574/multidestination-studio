@@ -2,12 +2,14 @@
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
+Fonts: Inter (SIL Open Font License, see fonts/LICENSE-Inter.txt), converted to TrueType in fonts/.
 """
 import os
+import re
 import sys
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -17,90 +19,155 @@ from reportlab.platypus import (BaseDocTemplate, Frame, Image, KeepTogether, Nex
                                 PageTemplate, Paragraph, Spacer, Table, TableStyle)
 from reportlab.platypus.flowables import Flowable
 from reportlab.platypus.tableofcontents import TableOfContents
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else "Multidestination-Studio-1.0-User-Guide.pdf"
+OUT = sys.argv[1] if len(sys.argv) > 1 else "Multidestination-Studio-User-Guide.pdf"
 SHOTS = sys.argv[2] if len(sys.argv) > 2 else "shots"
+VERSION = "1.2.0"
 
-FONT_DIR = "/usr/share/fonts/truetype/dejavu"
-pdfmetrics.registerFont(TTFont("Sans", f"{FONT_DIR}/DejaVuSans.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Bold", f"{FONT_DIR}/DejaVuSans-Bold.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Oblique", f"{FONT_DIR}/DejaVuSans-Oblique.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-BoldOblique", f"{FONT_DIR}/DejaVuSans-BoldOblique.ttf"))
-pdfmetrics.registerFont(TTFont("Mono", f"{FONT_DIR}/DejaVuSansMono.ttf"))
-from reportlab.pdfbase.pdfmetrics import registerFontFamily  # noqa: E402
-
+HERE = os.path.dirname(os.path.abspath(__file__))
+FONTS = os.path.join(HERE, "fonts")
+DEJAVU = "/usr/share/fonts/truetype/dejavu"
+for name, file in [("Sans", "Inter-Regular"), ("Sans-Bold", "Inter-SemiBold"), ("Sans-Oblique", "Inter-Italic"),
+                   ("Sans-BoldOblique", "Inter-SemiBoldItalic"), ("Sans-Medium", "Inter-Medium"),
+                   ("Display", "InterDisplay-Bold"), ("Display-Black", "InterDisplay-Black")]:
+    pdfmetrics.registerFont(TTFont(name, os.path.join(FONTS, file + ".ttf")))
+pdfmetrics.registerFont(TTFont("Mono", f"{DEJAVU}/DejaVuSansMono.ttf"))
+pdfmetrics.registerFont(TTFont("Mono-Bold", f"{DEJAVU}/DejaVuSansMono-Bold.ttf"))
+pdfmetrics.registerFont(TTFont("DejaVu", f"{DEJAVU}/DejaVuSans.ttf"))
 registerFontFamily("Sans", normal="Sans", bold="Sans-Bold", italic="Sans-Oblique", boldItalic="Sans-BoldOblique")
 
-INK = colors.HexColor("#1D2230")
-MUTED = colors.HexColor("#5B6170")
-ACCENT = colors.HexColor("#2B3FD6")
-LINE = colors.HexColor("#D9DCE3")
-SOFT = colors.HexColor("#F3F4F8")
-RED = colors.HexColor("#B83232")
+# Palette: a broadcast control room. Tally red for Program, tally green for Preview, on deep ink.
+INK = colors.HexColor("#14161C")
+NIGHT = colors.HexColor("#0D0F14")
+PANEL = colors.HexColor("#1B1F29")
+MUTED = colors.HexColor("#5E6472")
+LINE = colors.HexColor("#E2E3E8")
+SOFT = colors.HexColor("#F4F4F1")
+PGM = colors.HexColor("#E2382F")      # tally red
+PVW = colors.HexColor("#17A866")      # tally green
+PVW_SOFT = colors.HexColor("#EAF6EF")
+PGM_SOFT = colors.HexColor("#FCECEA")
+ACCENT = PGM
+RED = PGM
 
-body = ParagraphStyle("body", fontName="Sans", fontSize=10, leading=15, textColor=INK, spaceAfter=6)
-small = ParagraphStyle("small", parent=body, fontSize=8.5, leading=12, textColor=MUTED)
-bullet = ParagraphStyle("bullet", parent=body, leftIndent=14, bulletIndent=3, spaceAfter=3)
-h1 = ParagraphStyle("h1", fontName="Sans-Bold", fontSize=20, leading=25, textColor=INK, spaceBefore=4,
-                    spaceAfter=10)
-h2 = ParagraphStyle("h2", fontName="Sans-Bold", fontSize=13, leading=17, textColor=ACCENT, spaceBefore=12,
+body = ParagraphStyle("body", fontName="Sans", fontSize=9.6, leading=15, textColor=INK, spaceAfter=6)
+small = ParagraphStyle("small", parent=body, fontSize=8.3, leading=11.5, textColor=MUTED)
+bullet = ParagraphStyle("bullet", parent=body, leftIndent=15, bulletIndent=2, spaceAfter=3,
+                        bulletFontName="DejaVu", bulletFontSize=8, bulletColor=PVW)
+h1 = ParagraphStyle("h1", fontName="Display", fontSize=27, leading=31, textColor=INK, spaceBefore=0,
+                    spaceAfter=14)
+h2 = ParagraphStyle("h2", fontName="Display", fontSize=13.5, leading=18, textColor=INK, spaceBefore=14,
                     spaceAfter=5, keepWithNext=1)
 h1.keepWithNext = 1
 toc_title = ParagraphStyle("toc_title", parent=h1)
-caption = ParagraphStyle("caption", parent=small, alignment=TA_CENTER, spaceBefore=4, spaceAfter=12)
-cell = ParagraphStyle("cell", parent=body, fontSize=9, leading=12.5, spaceAfter=0)
+caption = ParagraphStyle("caption", parent=small, alignment=TA_LEFT, spaceBefore=5, spaceAfter=14)
+cell = ParagraphStyle("cell", parent=body, fontSize=8.8, leading=12.5, spaceAfter=0)
 cellb = ParagraphStyle("cellb", parent=cell, fontName="Sans-Bold")
-note = ParagraphStyle("note", parent=body, fontSize=9.5, leading=14, textColor=INK, spaceAfter=0)
+cellh = ParagraphStyle("cellh", parent=cell, fontName="Sans-Bold", fontSize=7.8, textColor=colors.white)
+note = ParagraphStyle("note", parent=body, fontSize=9.2, leading=14, textColor=INK, spaceAfter=0)
 
 shot_counter = [0]
+current_chapter = [""]
+
+
+class ChapterMark(Flowable):
+    """Chapter opener: a large number, the two tally colours and a label."""
+
+    def __init__(self, num):
+        super().__init__()
+        self.num = num
+
+    def wrap(self, aw, ah):
+        self.aw = aw
+        return aw, 34 * mm
+
+    def draw(self):
+        c = self.canv
+        c.setFont("Display-Black", 64)
+        c.setFillColor(colors.HexColor("#E4E6EC"))
+        c.drawString(-2, 6 * mm, f"{int(self.num):02d}")
+        c.setFillColor(PGM)
+        c.rect(0, 2 * mm, 14 * mm, 1.6 * mm, fill=1, stroke=0)
+        c.setFillColor(PVW)
+        c.rect(15 * mm, 2 * mm, 7 * mm, 1.6 * mm, fill=1, stroke=0)
+        c.setFont("Mono-Bold", 7.5)
+        c.setFillColor(MUTED)
+        c.drawRightString(self.aw, 26 * mm, f"CHAPTER {int(self.num):02d}")
 
 
 class Doc(BaseDocTemplate):
+    def beforeDocument(self):
+        current_chapter[0] = ""
+
     def afterFlowable(self, f):
+        if isinstance(f, Paragraph) and f.style.name == "toc_title":
+            current_chapter[0] = "Contents"
         if isinstance(f, Paragraph) and f.style.name in ("h1", "h2"):
             level = 0 if f.style.name == "h1" else 1
-            text = f.getPlainText()
+            text = getattr(f, "toc_text", None) or f.getPlainText()
             key = f"h{id(f)}"
             self.canv.bookmarkPage(key)
             self.canv.addOutlineEntry(text, key, level=level, closed=level > 0)
             if level == 0:
+                current_chapter[0] = f.getPlainText()
                 self.notify("TOCEntry", (level, text, self.page, key))
 
 
+def _glyphs(text):
+    # Characters Inter lacks are set in DejaVu.
+    return text.replace("⋮", '<font name="DejaVu">⋮</font>')
+
+
 def P(text, style=body):
-    return Paragraph(text, style)
+    if style is h2:
+        text = f'<font color="#E2382F">■</font>&nbsp;&nbsp;{text}'
+    return Paragraph(_glyphs(text), style)
 
 
 def bullets(items):
-    return [Paragraph(i, bullet, bulletText="•") for i in items]
+    return [Paragraph(_glyphs(i), bullet, bulletText="▸") for i in items]
 
 
 def steps(items):
-    return [Paragraph(i, bullet, bulletText=f"{n}.") for n, i in enumerate(items, 1)]
+    return [Paragraph(_glyphs(i), bullet, bulletText=f"{n}.") for n, i in enumerate(items, 1)]
 
 
 def callout(text, title="Tip"):
-    t = Table([[Paragraph(f"<b>{title}.</b> {text}", note)]], colWidths=[165 * mm])
+    label = Paragraph(f'<font name="Mono-Bold" size="7.5" color="#17A866">{title.upper()}</font>', note)
+    t = Table([[label], [Paragraph(_glyphs(text), note)]], colWidths=[170 * mm])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), SOFT),
-        ("LINEBEFORE", (0, 0), (0, -1), 3, ACCENT),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("BACKGROUND", (0, 0), (-1, -1), PVW_SOFT),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, PVW),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, 0), 8), ("BOTTOMPADDING", (0, 0), (-1, 0), 1),
+        ("TOPPADDING", (0, 1), (-1, 1), 1), ("BOTTOMPADDING", (0, 1), (-1, 1), 9),
     ]))
-    return [t, Spacer(1, 8)]
+    return [t, Spacer(1, 9)]
 
 
 def table(rows, widths, header=True):
-    data = [[Paragraph(c, cellb if (header and r == 0) else cell) for c in row] for r, row in enumerate(rows)]
-    t = Table(data, colWidths=[w * mm for w in widths], repeatRows=1 if header else 0)
+    scale = 170 / sum(widths)
+    data = []
+    for r, row in enumerate(rows):
+        if header and r == 0:
+            data.append([Paragraph(c.upper(), cellh) for c in row])
+        else:
+            data.append([Paragraph(_glyphs(c), cellb if k == 0 else cell) for k, c in enumerate(row)])
+    t = Table(data, colWidths=[w * scale * mm for w in widths], repeatRows=1 if header else 0)
     style = [
-        ("GRID", (0, 0), (-1, -1), 0.5, LINE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, LINE),
     ]
+    start = 1 if header else 0
+    for r in range(start, len(rows)):
+        if (r - start) % 2 == 1:
+            style.append(("BACKGROUND", (0, r), (-1, r), SOFT))
     if header:
-        style.append(("BACKGROUND", (0, 0), (-1, 0), SOFT))
+        style += [("BACKGROUND", (0, 0), (-1, 0), INK), ("LINEBELOW", (0, 0), (-1, 0), 2, PGM),
+                  ("TOPPADDING", (0, 0), (-1, 0), 6), ("BOTTOMPADDING", (0, 0), (-1, 0), 6)]
     t.setStyle(TableStyle(style))
     return [t, Spacer(1, 10)]
 
@@ -116,9 +183,9 @@ class Placeholder(Flowable):
     def draw(self):
         c = self.canv
         c.setFillColor(SOFT)
-        c.setStrokeColor(LINE)
+        c.setStrokeColor(MUTED)
         c.setDash(4, 3)
-        c.roundRect(0, 0, self.w, self.h, 6, fill=1, stroke=1)
+        c.rect(0, 0, self.w, self.h, fill=1, stroke=1)
         c.setDash()
         c.setFillColor(MUTED)
         c.setFont("Sans-Bold", 11)
@@ -127,26 +194,46 @@ class Placeholder(Flowable):
         c.drawCentredString(self.w / 2, self.h / 2 - 10, self.text)
 
 
+class Framed(Flowable):
+    """Screenshot in a thin dark frame with a tally-coloured corner."""
+
+    def __init__(self, path, w, h):
+        super().__init__()
+        self.path, self.w, self.h = path, w, h
+
+    def wrap(self, aw, ah):
+        self.aw = aw
+        return aw, self.h + 6
+
+    def draw(self):
+        c = self.canv
+        x = (self.aw - self.w) / 2
+        c.setFillColor(INK)
+        c.rect(x - 3, 0, self.w + 6, self.h + 6, fill=1, stroke=0)
+        c.drawImage(self.path, x, 3, self.w, self.h, mask="auto")
+        c.setFillColor(PGM)
+        c.rect(x - 3, self.h + 6 - 1.6, 12 * mm, 1.6, fill=1, stroke=0)
+
+
 def shot(text, height=80, file=None):
     """Screenshot with caption; placeholder (with the expected file name) if the PNG is missing."""
     shot_counter[0] += 1
     n = shot_counter[0]
     name = file or f"shot{n:02d}.png"
     path = os.path.join(SHOTS, name)
-    w = 165 * mm
+    w = 170 * mm
     if os.path.exists(path):
         img = Image(path)
         ratio = img.imageHeight / img.imageWidth
         # Natural size at about 96 dpi, never wider than the text column.
-        iw = min(w, img.imageWidth * 0.26 * mm)
+        iw = min(w - 6, img.imageWidth * 0.26 * mm)
         h = min(iw * ratio, 120 * mm)
-        img = Image(path, width=h / ratio, height=h)
-        img.hAlign = "CENTER"
-        flow = img
+        flow = Framed(path, h / ratio, h)
     else:
         flow = Placeholder(n, f"To be provided: {name}", w, height * mm)
-    return [KeepTogether([flow, Paragraph(f"<b>Figure {n}.</b> {text}", caption)])]
-
+    cap = Paragraph(f'<font name="Mono-Bold" size="7.5" color="#E2382F">FIG. {n:02d}</font>&nbsp;&nbsp;'
+                    f'{_glyphs(text)}', caption)
+    return [KeepTogether([flow, cap])]
 
 class ConceptDiagram(Flowable):
     """Scenes → destinations → outputs."""
@@ -180,9 +267,9 @@ class ConceptDiagram(Flowable):
 
     def draw(self):
         c = self.canv
-        blue_f, blue_s = colors.HexColor("#E6EAFB"), ACCENT
-        teal_f, teal_s = colors.HexColor("#E1F5EE"), colors.HexColor("#0F6E56")
-        gray_f, gray_s = SOFT, colors.HexColor("#888780")
+        blue_f, blue_s = PVW_SOFT, PVW
+        teal_f, teal_s = colors.HexColor("#EEF0F5"), INK
+        gray_f, gray_s = PGM_SOFT, PGM
         W = self.width
         c.setFont("Sans-Bold", 8)
         c.setFillColor(MUTED)
@@ -212,60 +299,117 @@ class ConceptDiagram(Flowable):
         c.drawCentredString(W / 2, 6, "Each scene covers some destinations. Each destination keeps its own layout "
                                       "of the scene and feeds its own outputs.")
 
-
 def on_page(canv, doc):
+    W, H = A4
     canv.saveState()
-    canv.setFont("Sans", 8)
+    # top: tally strip
+    canv.setFillColor(PGM)
+    canv.rect(0, H - 4, W * 0.62, 4, fill=1, stroke=0)
+    canv.setFillColor(PVW)
+    canv.rect(W * 0.62, H - 4, W * 0.38, 4, fill=1, stroke=0)
+    # footer
+    canv.setFont("Sans", 7.5)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.2.0 · User Guide")
-    canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
-    canv.setStrokeColor(LINE)
-    canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
+    canv.drawString(20 * mm, 11 * mm, f"User Guide · {VERSION}")
+    num = str(doc.page)
+    canv.setFillColor(INK)
+    canv.roundRect(W - 20 * mm - 12 * mm, 9 * mm, 12 * mm, 5.5 * mm, 2.75 * mm, fill=1, stroke=0)
+    canv.setFillColor(colors.white)
+    canv.setFont("Mono-Bold", 8)
+    canv.drawCentredString(W - 26 * mm, 10.8 * mm, num)
+    canv.restoreState()
+
+
+def on_page_end(canv, doc):
+    # Running head drawn at the end of the page: it names the chapter the page belongs to.
+    W, H = A4
+    canv.saveState()
+    canv.setFont("Mono-Bold", 7)
+    canv.setFillColor(MUTED)
+    canv.drawString(20 * mm, H - 12 * mm, "MULTIDESTINATION STUDIO")
+    canv.setFont("Sans", 7.5)
+    if current_chapter[0]:
+        canv.drawRightString(W - 20 * mm, H - 12 * mm, current_chapter[0])
     canv.restoreState()
 
 
 def on_cover(canv, doc):
-    canv.saveState()
     W, H = A4
-    canv.setFillColor(colors.HexColor("#14182A"))
+    canv.saveState()
+    canv.setFillColor(NIGHT)
     canv.rect(0, 0, W, H, fill=1, stroke=0)
-    canv.setFillColor(ACCENT)
-    canv.rect(0, H * 0.43, W, 4, fill=1, stroke=0)
-    # stylised Preview / Program tiles
-    for i, x in enumerate((25 * mm, 112 * mm)):
-        for j in range(3):
-            y = H - 95 * mm - j * 24 * mm
-            canv.setFillColor(colors.HexColor("#22283F"))
-            canv.setStrokeColor(colors.HexColor("#3A4366") if i == 0 else colors.HexColor("#8E2A2A"))
-            canv.roundRect(x, y, 73 * mm, 20 * mm, 3, fill=1, stroke=1)
+    # routing diagram: one input fans out to three destinations
+    ox, oy = 26 * mm, H - 118 * mm
+    canv.setLineWidth(1.4)
+    rows = [(oy + 42 * mm, PGM), (oy + 21 * mm, colors.HexColor("#C9CCD6")), (oy, PVW)]
+    canv.setStrokeColor(colors.HexColor("#3A3F4E"))
+    canv.setFillColor(PANEL)
+    canv.roundRect(ox, oy + 14 * mm, 34 * mm, 24 * mm, 3, fill=1, stroke=1)
+    canv.setFont("Mono-Bold", 7)
+    canv.setFillColor(colors.HexColor("#8C92A3"))
+    canv.drawString(ox + 4 * mm, oy + 32 * mm, "SCENE")
+    canv.setFont("Display", 13)
     canv.setFillColor(colors.white)
-    canv.setFont("Sans-Bold", 11)
-    canv.drawCentredString(61.5 * mm, H - 22 * mm - 3 * mm, "Preview")
-    canv.drawCentredString(148.5 * mm, H - 22 * mm - 3 * mm, "Program")
-    canv.setFont("Sans-Bold", 34)
-    canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
-    canv.setFont("Sans", 15)
-    canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.2.0")
-    canv.setFont("Sans", 11)
-    canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
-    canv.setFont("Sans", 9)
-    canv.drawString(25 * mm, 20 * mm, "© 2026 Sébastien Tombre · GPL-2.0-or-later")
+    canv.drawString(ox + 4 * mm, oy + 20 * mm, "Keynote")
+    for y, col in rows:
+        p = canv.beginPath()
+        p.moveTo(ox + 34 * mm, oy + 26 * mm)
+        p.curveTo(ox + 60 * mm, oy + 26 * mm, ox + 60 * mm, y + 9 * mm, ox + 86 * mm, y + 9 * mm)
+        canv.setStrokeColor(col)
+        canv.drawPath(p, stroke=1, fill=0)
+        canv.setFillColor(PANEL)
+        canv.setStrokeColor(colors.HexColor("#3A3F4E"))
+        canv.roundRect(ox + 86 * mm, y, 70 * mm, 18 * mm, 3, fill=1, stroke=1)
+        canv.setFillColor(col)
+        canv.circle(ox + 92 * mm, y + 9 * mm, 2.2 * mm, fill=1, stroke=0)
+    labels = [("Program", "LED wall · 3840 × 1080"), ("Default (OBS)", "Stream · 1920 × 1080"),
+              ("Preview", "Projection · blended")]
+    for (y, col), (a, b) in zip(rows, labels):
+        canv.setFont("Sans-Bold", 9)
+        canv.setFillColor(colors.white)
+        canv.drawString(ox + 98 * mm, y + 10.5 * mm, a)
+        canv.setFont("Sans", 7.5)
+        canv.setFillColor(colors.HexColor("#8C92A3"))
+        canv.drawString(ox + 98 * mm, y + 5 * mm, b)
+    # title block
+    canv.setFillColor(colors.white)
+    canv.setFont("Display-Black", 46)
+    canv.drawString(24 * mm, 92 * mm, "Multidestination")
+    canv.drawString(24 * mm, 74 * mm, "Studio")
+    canv.setFillColor(PGM)
+    canv.rect(24 * mm, 64 * mm, 20 * mm, 2.2 * mm, fill=1, stroke=0)
+    canv.setFillColor(PVW)
+    canv.rect(45 * mm, 64 * mm, 10 * mm, 2.2 * mm, fill=1, stroke=0)
+    canv.setFont("Sans", 13)
+    canv.setFillColor(colors.HexColor("#C9CCD6"))
+    canv.drawString(24 * mm, 52 * mm, "User Guide")
+    canv.setFont("Sans", 9.5)
+    canv.setFillColor(colors.HexColor("#8C92A3"))
+    canv.drawString(24 * mm, 45 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
+    # version tally
+    canv.setFillColor(PGM)
+    canv.roundRect(W - 24 * mm - 30 * mm, 50 * mm, 30 * mm, 9 * mm, 4.5 * mm, fill=1, stroke=0)
+    canv.setFillColor(colors.white)
+    canv.setFont("Mono-Bold", 10)
+    canv.drawCentredString(W - 24 * mm - 15 * mm, 53 * mm, f"v {VERSION}")
+    canv.setFont("Sans", 8)
+    canv.setFillColor(colors.HexColor("#6B7183"))
+    canv.drawString(24 * mm, 18 * mm, "© 2026 Sébastien Tombre · GPL-2.0-or-later")
     canv.restoreState()
 
 
 def build():
-    doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
+    doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=22 * mm,
               bottomMargin=22 * mm, title="Multidestination Studio 1.2.0 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
-                          PageTemplate("body", frames=[frame], onPage=on_page)])
+                          PageTemplate("body", frames=[frame], onPage=on_page, onPageEnd=on_page_end)])
     s = [NextPageTemplate("body"), PageBreak()]
 
     toc = TableOfContents()
     toc.levelStyles = [
-        ParagraphStyle("t0", fontName="Sans-Bold", fontSize=11, leading=22, textColor=INK),
+        ParagraphStyle("t0", fontName="Display", fontSize=12, leading=24, textColor=INK),
         ParagraphStyle("t1", fontName="Sans", fontSize=8.5, leading=11, leftIndent=14, textColor=MUTED),
     ]
     s += [P("Contents", toc_title), toc, PageBreak()]
@@ -910,7 +1054,18 @@ def build():
         ["The interface is in the wrong language", "Configuration Settings → Language, then restart OBS."],
     ], [52, 113])
 
-    doc.multiBuild(s)
+    # Chapter openers: big number above the title; the contents keep "N. Title".
+    out = []
+    for f in s:
+        if isinstance(f, Paragraph) and f.style.name == "h1":
+            m = re.match(r"^(\d+)\.\s+(.*)$", f.getPlainText())
+            if m:
+                p = Paragraph(m.group(2), h1)
+                p.toc_text = f.getPlainText()
+                out += [ChapterMark(m.group(1)), p]
+                continue
+        out.append(f)
+    doc.multiBuild(out)
 
 
 if __name__ == "__main__":
