@@ -17,7 +17,7 @@
 AppId={{6B8C2F4E-1D3A-4E7B-9A51-2C7D8E0F4A13}
 AppName=Multidestination Studio for OBS
 AppVersion={#MyVersion}
-AppPublisher=Sébastien Tombre
+AppPublisher=sebts
 AppPublisherURL=https://github.com/sebts-574/multidestination-studio
 ; Emplacement officiel des plugins OBS (28+), conservé lors des mises à jour d'OBS.
 DefaultDirName={commonappdata}\obs-studio\plugins\multidestination-studio

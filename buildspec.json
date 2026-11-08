@@ -33,13 +33,13 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "no.tombre.multidestination-studio"
+            "bundleId": "io.github.sebts-574.multidestination-studio"
         }
     },
     "name": "multidestination-studio",
     "displayName": "Multidestination Studio",
     "version": "1.2.0",
-    "author": "Sébastien Tombre",
+    "author": "sebts",
     "website": "https://github.com/sebts-574/multidestination-studio",
     "email": "noreply@users.noreply.github.com"
 }

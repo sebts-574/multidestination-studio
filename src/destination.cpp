@@ -1,6 +1,6 @@
 /*
 Multidestination Studio
-Copyright (C) 2026 Sébastien Tombre
+Copyright (C) 2026 sebts
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

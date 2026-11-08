@@ -72,4 +72,4 @@ docs/           release notes and user guide
 
 ## License
 
-Copyright © 2026 Sébastien Tombre. Released under the GNU General Public License v2.0 or later (see [LICENSE](LICENSE)), as required for OBS Studio plugins.
+Copyright © 2026 sebts. Released under the GNU General Public License v2.0 or later (see [LICENSE](LICENSE)), as required for OBS Studio plugins.

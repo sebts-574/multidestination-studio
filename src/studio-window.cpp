@@ -1,6 +1,6 @@
 /*
 Multidestination Studio
-Copyright (C) 2026 Sébastien Tombre
+Copyright (C) 2026 sebts
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -811,7 +811,7 @@ void StudioWindow::BuildDocks()
 }
 
 /* Disposition par défaut : six docks côte à côte en bas, dans cet ordre,
- * avec ces proportions (d'après la maquette de Sébastien, en 1920×1080). */
+ * avec ces proportions (d'après la maquette de sebts, en 1920×1080). */
 void StudioWindow::ResetDocks()
 {
 	/* Cues (si la fonction est activée) entre Sources et Contrôles média. */
