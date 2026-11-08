@@ -538,7 +538,7 @@ def build():
         "source itself is not one of the choices.",
     ])
     s += shot("The New frame dialog.", 45, "frame-dialog.png")
-    s += shot("An empty frame (dotted outline) and a frame with a picture dropped into it.", 60,
+    s += shot("An empty frame in a Preview tile: the dotted outline is shown in the studio only.", 60,
               "frame-preview.png")
     s += [P("Visibility, lock and folders", h2)]
     s += bullets([
@@ -718,8 +718,8 @@ def build():
         "Give the destination a name (\"Destination X\" if left empty) and click <b>Save &amp; Create "
         "destination</b>.",
     ])
-    s += shot("The Output blending window: the outputs, the layout, and the settings of the selected output "
-              "(size with the aspect ratio lock, position, edge blends, gamma).", 85, "shot12.png")
+    s += shot("The Output blending window for a new destination: the outputs, the layout, and the output "
+              "settings (size with the aspect ratio lock, position, edge blends, gamma).", 85, "shot12.png")
     s += [P("Placing outputs", h2)]
     s += [P("Outputs are moved and resized with the mouse like sources: the centre snaps (Ctrl disables it), "
             "arrow keys nudge, Delete removes an output from the layout and Ctrl+Z undoes. The <b>lock</b> between "
@@ -859,7 +859,7 @@ def build():
                     "one show is added, you can load it right away."],
         ["Export…", "Saves the loaded show to a .json file, with the OBS exporter."],
     ], [32, 133])
-    s += shot("The Show menu with Load show open.", 45, "show-menu.png")
+    s += shot("The Show menu.", 45, "show-menu.png")
     s += [P("When the show has changed, Multidestination Studio asks whether to save it: when you close the "
             "studio, when you quit OBS, and before New show or Load show. <b>Save</b> saves into the loaded show, "
             "<b>Don’t save</b> keeps the show as it was last saved, <b>Cancel</b> goes back. What is on air "
