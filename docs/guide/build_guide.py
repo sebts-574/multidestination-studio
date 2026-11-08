@@ -394,13 +394,13 @@ def on_cover(canv, doc):
     canv.drawCentredString(W - 24 * mm - 15 * mm, 53 * mm, f"v {VERSION}")
     canv.setFont("Sans", 8)
     canv.setFillColor(colors.HexColor("#6B7183"))
-    canv.drawString(24 * mm, 18 * mm, "© 2026 Sébastien Tombre · GPL-2.0-or-later")
+    canv.drawString(24 * mm, 18 * mm, "© 2026 sdet · GPL-2.0-or-later")
     canv.restoreState()
 
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=22 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.2.0 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.2.0 - User Guide", author="sdet",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
