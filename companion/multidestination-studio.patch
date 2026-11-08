@@ -57,7 +57,7 @@ index 148054e..8802dc1 100644
  
  ### Custom – Send Command
 diff --git a/src/__tests__/__snapshots__/option-shape.test.ts.snap b/src/__tests__/__snapshots__/option-shape.test.ts.snap
-index 1dc4ea7..60f5ebc 100644
+index 1dc4ea7..9e4ef6e 100644
 --- a/src/__tests__/__snapshots__/option-shape.test.ts.snap
 +++ b/src/__tests__/__snapshots__/option-shape.test.ts.snap
 @@ -132,6 +132,221 @@ exports[`option shape > action options are unchanged 1`] = `
@@ -282,7 +282,7 @@ index 1dc4ea7..60f5ebc 100644
    "media_control": [
      {
        "choices": [
-@@ -2397,6 +2612,108 @@ exports[`option shape > feedback options are unchanged 1`] = `
+@@ -2397,6 +2612,109 @@ exports[`option shape > feedback options are unchanged 1`] = `
        "type": "number",
      },
    ],
@@ -319,6 +319,7 @@ index 1dc4ea7..60f5ebc 100644
 +      "type": "dropdown",
 +    },
 +  ],
++  "mdsCueRunning": [],
 +  "mdsDestinationsShown": [],
 +  "mdsGroupSource": [
 +    {
