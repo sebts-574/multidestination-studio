@@ -683,7 +683,8 @@ def build():
         "Give the destination a name (\"Destination X\" if left empty) and click <b>Save &amp; Create "
         "destination</b>.",
     ])
-    s += shot("The Output blending window with two overlapping outputs.", 85, "shot12.png")
+    s += shot("The Output blending window with two overlapping outputs; the selected output shows its size "
+              "with the aspect ratio lock, its position and its edge blends.", 85, "shot12.png")
     s += [P("Placing outputs", h2)]
     s += [P("Outputs are moved and resized with the mouse like sources: the centre snaps (Ctrl disables it), "
             "arrow keys nudge, Delete removes an output from the layout and Ctrl+Z undoes. The <b>lock</b> between "
