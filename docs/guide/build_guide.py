@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.9 - User Guide (PDF).
+"""Multidestination Studio 1.2.0 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.9 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.2.0 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.9")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.2.0")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.9 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.2.0 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -342,11 +342,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.9-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.2.0-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.9-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.2.0-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.3.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -365,8 +365,7 @@ def build():
             "it. When the OBS window is restored after being minimized, the studio comes back in front; to work "
             "in the OBS window, click it or choose it with Alt+Tab (Cmd+Tab on macOS).")]
     s += callout("To have the studio open automatically every time OBS starts, turn on <b>Configuration "
-                 "Settings → Startup Settings → Launch Multidestination Studio on startup</b>. It then opens in "
-                 "full screen, also on macOS.")
+                 "Settings → Startup Settings → Launch Multidestination Studio on startup</b>.")
 
     # 4 -------------------------------------------------------------
     s += [PageBreak(), P("4. A tour of the studio", h1)]
@@ -538,6 +537,9 @@ def build():
         "With Companion, the Group Source Selector of a frame cycles through the files in it; the frame "
         "source itself is not one of the choices.",
     ])
+    s += shot("The New frame dialog.", 45, "frame-dialog.png")
+    s += shot("An empty frame (dotted outline) and a frame with a picture dropped into it.", 60,
+              "frame-preview.png")
     s += [P("Visibility, lock and folders", h2)]
     s += bullets([
         "The <b>eye</b> shows or hides a source; the <b>lock</b> stops it from being moved or resized with the "
@@ -857,6 +859,7 @@ def build():
                     "one show is added, you can load it right away."],
         ["Export…", "Saves the loaded show to a .json file, with the OBS exporter."],
     ], [32, 133])
+    s += shot("The Show menu with Load show open.", 45, "show-menu.png")
     s += [P("When the show has changed, Multidestination Studio asks whether to save it: when you close the "
             "studio, when you quit OBS, and before New show or Load show. <b>Save</b> saves into the loaded show, "
             "<b>Don’t save</b> keeps the show as it was last saved, <b>Cancel</b> goes back. What is on air "
@@ -869,6 +872,7 @@ def build():
         "Switching collection from the OBS <b>Scene Collection</b> menu keeps the OBS behaviour: the changes are "
         "saved without asking. If OBS stops unexpectedly, the latest changes are in the show.",
     ])
+    s += shot("The save prompt when quitting with unsaved changes.", 35, "show-save-prompt.png")
     s += [P("Shortcuts at a glance", h2)]
     s += table([
         ["Key", "Action"],

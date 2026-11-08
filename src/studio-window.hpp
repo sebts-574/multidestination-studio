@@ -59,8 +59,7 @@ public:
 	~StudioWindow() override;
 
 	void Toggle();
-	/* fullScreen : plein écran aussi sur macOS (ouverture au démarrage). */
-	void Open(bool fullScreen = false);
+	void Open();
 	/* Ouvre chaque destination en plein écran sur son écran de sortie. */
 	void OpenAllOutputs();
 	void Close();

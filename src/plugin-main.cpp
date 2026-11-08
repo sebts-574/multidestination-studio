@@ -158,7 +158,7 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 		if (m.LaunchOnStartup() && studio)
 			QTimer::singleShot(500, studio.data(), []() {
 				if (studio && !studio->isVisible())
-					studio->Open(true);
+					studio->Open();
 			});
 		/* Réglage « ouvrir les destinations sur leur sortie ». */
 		if (m.OpenOutputsOnStartup() && studio)

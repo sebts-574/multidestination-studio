@@ -1129,7 +1129,7 @@ void StudioWindow::Toggle()
 		Open();
 }
 
-void StudioWindow::Open(bool fullScreen)
+void StudioWindow::Open()
 {
 	/* La destination par défaut est protégée comme les autres par le mode
 	 * Studio d'OBS (« Dupliquer la scène ») : on l'active si besoin. */
@@ -1150,12 +1150,8 @@ void StudioWindow::Open(bool fullScreen)
 	 * fenêtres). F11 reste disponible. */
 	if (main && main->screen())
 		setGeometry(main->screen()->availableGeometry());
-	if (fullScreen)
-		showFullScreen();
-	else
-		showMaximized();
+	showMaximized();
 #else
-	(void)fullScreen;
 	if (main && main->screen())
 		setGeometry(main->screen()->geometry());
 	showFullScreen();
