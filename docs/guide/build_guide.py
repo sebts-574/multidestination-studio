@@ -291,9 +291,10 @@ def build():
         "blending, gamma, black level and keystone correction.",
         "<b>A safe live output.</b> Changes you prepare in Preview never touch what is on air, unless you decide "
         "to edit the Program directly.",
-        "<b>Cues</b> (optional): play several scenes one after the other, with waits and per-scene transitions.",
+        "<b>Cues</b> (optional): play several scenes one after the other, with waits, per-scene transitions and "
+        "Auto-follow at the end of a video.",
         "<b>Companion and Stream Deck</b>: a ready-made Companion module with buttons for scenes, transitions, "
-        "settings and cues.",
+        "settings, cues and a group source selector.",
     ])
     s += [P("Requirements", h2)]
     s += table([
@@ -360,6 +361,9 @@ def build():
             "(the Dock and Mission Control on macOS). After minimizing it, click that entry to come back. To "
             "leave the studio, use <b>File → Exit Multidestination Studio</b>, the <b>Quit</b> button in the "
             "top-right corner (full screen), the <b>Exit</b> button in the Controls dock, or <b>Esc</b>.")]
+    s += [P("OBS windows opened from the studio (source properties, filters, transition properties) open over "
+            "it. When the OBS window is restored after being minimized, the studio comes back in front; to work "
+            "in the OBS window, click it or choose it with Alt+Tab (Cmd+Tab on macOS).")]
     s += callout("To have the studio open automatically every time OBS starts, turn on <b>Configuration "
                  "Settings → Startup Settings → Launch Multidestination Studio on startup</b>.")
 
@@ -436,7 +440,7 @@ def build():
         ["Command", "What it does"],
         ["Settings…", "Rename, change the resolution or the output screen."],
         ["Output blending…", "Split this destination across several projectors (chapter 10)."],
-        ["Open fullscreen on …", "Shows the Program of the destination full screen on its output screen. For a "
+        ["Open fullscreen", "Shows the Program of the destination full screen on its output screen. For a "
                                  "blended destination: one full-screen window per projector."],
         ["Open windowed", "Shows the Program in a normal window, for checking or for capture."],
         ["Close projection", "Closes the full-screen or windowed output."],
@@ -472,7 +476,8 @@ def build():
             "through obs-websocket open the same dialog.")]
     s += shot("The scene dialog with its list of destinations.", 60, "shot08.png")
     s += [P("Changing which destinations a scene covers", h2)]
-    s += [P("Double-click a scene, or use the gear button, to open the same dialog. Unticking a destination "
+    s += [P("Double-click a scene, use the gear button, or right-click → <b>Name and destinations…</b> to open "
+            "the same dialog. Unticking a destination "
             "deletes the layout of that scene on that destination, so you are asked to confirm.")]
     s += [P("Selecting and organising", h2)]
     s += bullets([
@@ -494,7 +499,8 @@ def build():
             "or closes it. <b>Remove folder</b> keeps its scenes. Folders only organise the list: when a folder "
             "is selected, <b>Transition</b> and the quick transitions are disabled and a short note explains why.")]
     s += shot("The Scenes dock with a folder open.", 55, "scenes-dock.png")
-    s += shot("The Duplicate scene dialog: name of the copy and destinations.", 55, "duplicate-scene.png")
+    s += shot("Right-click on a scene: Duplicate… asks for the name of the copy and its destinations.", 55,
+              "duplicate-scene.png")
     s += [P("When a scene does not cover a destination", h2)]
     s += [P("By default every destination stays visible. When the selected scene does not cover a destination, "
             "its Preview tile is hatched, framed in red and marked <b>Not in this scene</b>; its Program keeps "
@@ -523,8 +529,10 @@ def build():
         "Drag sources into and out of groups, or right-click a source → <b>Move to group</b> / <b>Remove from "
         "group</b>: the source keeps its place on screen. Selecting a source inside a group edits only that "
         "source, also with the handles in the Preview.",
-        "Right-click a source → <b>Crop…</b> to set the crop in pixels (left, right, top, bottom), applied "
-        "live; Cancel restores the previous crop.",
+        "Right-click a source → <b>Crop…</b>: the whole source is shown with the cropped areas darkened. Drag "
+        "the edges or corners of the frame, or drag inside it to move it, or type the values in pixels. Changes "
+        "are applied live; Ctrl+Z (Cmd+Z) undoes in the dialog, <b>No crop</b> removes the crop, <b>Cancel</b> "
+        "restores the previous one.",
     ])
     s += shot("The Sources dock with a group, the eye and the lock.", 50, "sources-dock.png")
     s += shot("Right-click on a source in a group: Move to group / Remove from group, Crop… and the paste "
@@ -598,7 +606,7 @@ def build():
     s += bullets([
         "<b>Add</b>: click <b>+</b> next to <b>Quick transitions</b>, set the duration at the bottom of the "
         "menu, then choose a transition type (Cut, Fade, Swipe, Slide, Stinger, Fade to Color, Luma Wipe, "
-        "Move). Cut and Fade use the OBS built-in transitions; the other types open the OBS name and "
+        "and the other types installed in OBS). Cut and Fade use the OBS built-in transitions; the other types open the OBS name and "
         "properties windows. The new quick transition is added under the others.",
         "<b>Use</b>: click the quick transition.",
         "<b>Edit or remove</b>: click its arrow for <b>Properties…</b>, the duration, or <b>Remove</b>.",
@@ -616,6 +624,12 @@ def build():
             "and the Program tiles become editable with the same tools as Preview. Your changes are applied live "
             "and also saved into the scene. Click the button again to protect the Program.")]
     s += shot("Modify PGM switched on: the button is red and the Program can be edited.", 70, "modify-pgm.png")
+    s += [P("Groups in Preview and Program", h2)]
+    s += [P("The scene on air keeps its own copy of its groups. Showing another source of a group (the eye in "
+            "the Sources dock, or the Companion group buttons) therefore changes only the Preview; your choice "
+            "goes on air with the next transition. On the default destination this relies on the OBS Studio Mode "
+            "setting <b>Duplicate scene</b> (on by default); without it, the OBS Program shows the scene itself "
+            "and a group change is seen on air immediately.")]
 
     # 9 -------------------------------------------------------------
     s += [PageBreak(), P("9. Cues", h1)]
@@ -683,8 +697,8 @@ def build():
         "Give the destination a name (\"Destination X\" if left empty) and click <b>Save &amp; Create "
         "destination</b>.",
     ])
-    s += shot("The Output blending window with two overlapping outputs; the selected output shows its size "
-              "with the aspect ratio lock, its position and its edge blends.", 85, "shot12.png")
+    s += shot("The Output blending window: the outputs, the layout, and the settings of the selected output "
+              "(size with the aspect ratio lock, position, edge blends, gamma).", 85, "shot12.png")
     s += [P("Placing outputs", h2)]
     s += [P("Outputs are moved and resized with the mouse like sources: the centre snaps (Ctrl disables it), "
             "arrow keys nudge, Delete removes an output from the layout and Ctrl+Z undoes. The <b>lock</b> between "
@@ -711,7 +725,7 @@ def build():
             "appears there immediately. <b>Save changes</b> stores the settings (the button greys out once "
             "saved). If you <b>Close</b> with unsaved changes, you are asked whether to <b>Save changes</b> or "
             "<b>Discard changes</b>; discarding returns the projectors to the saved settings.")]
-    s += shot("Two projectors showing the test pattern, aligned and blended.", 70, "shot13.png")
+    s += shot("Two projectors showing the test pattern, aligned and blended.", 70, "shot13.jpg")
     s += callout("Start with the test pattern: align the projectors with the grid and corner pin, adjust the "
                  "overlap, then the gamma, and finally the black level on a dark image.")
 
@@ -795,7 +809,8 @@ def build():
                               "its output screen at startup</b>: on or off (both off by default)."],
         ["Language…", "Same as OBS, English, Français or Norsk (Bokmål). Takes effect when OBS restarts."],
     ], [42, 123])
-    s += shot("The Configuration Settings menu and the After a transition dialog.", 60, "settings-menu.png")
+    s += shot("The Configuration Settings menu.", 40, "settings-menu.png")
+    s += shot("The After a transition dialog.", 45, "after-transition.png")
     s += shot("The Destinations shown and Language dialogs.", 60, "shot16.png")
     s += shot("The Startup Settings dialog.", 35, "startup-settings.png")
 
@@ -818,7 +833,8 @@ def build():
         ["Ctrl+Z", "Undo"],
         ["Ctrl+G / Ctrl+Shift+G", "Group selected sources / Ungroup"],
         ["Arrow keys", "Nudge the selected source or output"],
-        ["Shift (while resizing)", "Free aspect ratio"],
+        ["Shift (while resizing)", "A source: free aspect ratio. An output: the opposite of its aspect lock"],
+        ["Ctrl+click (Cmd+click) in Preview", "Select the whole group"],
         ["Ctrl (while moving)", "Disable centre snapping"],
         ["Alt (on a handle)", "Crop"],
     ], [45, 120])
@@ -833,6 +849,7 @@ def build():
         ["The studio was minimized", "Click its entry in the taskbar (the Dock on macOS)."],
         ["A destination stays empty", "Check that the selected scene covers it and that it is not locked."],
         ["Transition is greyed out", "A scene folder is selected: select a scene."],
+        ["A group change is not on air", "By design it goes on air with the next transition (chapter 8)."],
         ["Open fullscreen is greyed out", "Choose an output screen in the destination Settings, and check that "
                                           "the screen is connected."],
         ["No Multidestination Studio section in Companion", "Most often the OBS connection still uses the "
