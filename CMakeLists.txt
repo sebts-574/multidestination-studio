@@ -56,6 +56,8 @@ target_sources(
     src/manager.hpp
     src/destination.cpp
     src/destination.hpp
+    src/show.cpp
+    src/show.hpp
     src/studio-window.cpp
     src/studio-window.hpp
     src/tile-grid.cpp

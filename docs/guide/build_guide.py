@@ -1,4 +1,4 @@
-"""Multidestination Studio 1.1.7 - User Guide (PDF).
+"""Multidestination Studio 1.1.8 - User Guide (PDF).
 
 Screenshots: PNG files in the folder given as argv[2], named as in the shot() calls;
 missing ones are drawn as labelled placeholders (with their file name).
@@ -217,7 +217,7 @@ def on_page(canv, doc):
     canv.saveState()
     canv.setFont("Sans", 8)
     canv.setFillColor(MUTED)
-    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.7 · User Guide")
+    canv.drawString(20 * mm, 12 * mm, "Multidestination Studio 1.1.8 · User Guide")
     canv.drawRightString(190 * mm, 12 * mm, str(doc.page))
     canv.setStrokeColor(LINE)
     canv.line(20 * mm, 16 * mm, 190 * mm, 16 * mm)
@@ -246,7 +246,7 @@ def on_cover(canv, doc):
     canv.drawString(25 * mm, H * 0.33, "Multidestination Studio")
     canv.setFont("Sans", 15)
     canv.setFillColor(colors.HexColor("#B9C0DA"))
-    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.7")
+    canv.drawString(25 * mm, H * 0.33 - 13 * mm, "User Guide · Version 1.1.8")
     canv.setFont("Sans", 11)
     canv.drawString(25 * mm, H * 0.33 - 24 * mm, "A plugin for OBS Studio · Windows, macOS, Linux")
     canv.setFont("Sans", 9)
@@ -256,7 +256,7 @@ def on_cover(canv, doc):
 
 def build():
     doc = Doc(OUT, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm,
-              bottomMargin=22 * mm, title="Multidestination Studio 1.1.7 - User Guide", author="Sébastien Tombre",
+              bottomMargin=22 * mm, title="Multidestination Studio 1.1.8 - User Guide", author="Sébastien Tombre",
               subject="User guide for the Multidestination Studio plugin for OBS Studio")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f")
     doc.addPageTemplates([PageTemplate("cover", frames=[frame], onPage=on_cover),
@@ -342,11 +342,11 @@ def build():
             "Releases page.")]
     s += table([
         ["System", "Package", "Notes"],
-        ["Windows", "multidestination-studio-1.1.7-windows-x64-installer.exe",
+        ["Windows", "multidestination-studio-1.1.8-windows-x64-installer.exe",
          "The installer is not code-signed: Windows SmartScreen or Defender may ask you to confirm."],
         ["macOS", "Universal .pkg package", "Not signed: open System Settings → Privacy &amp; Security → Open "
                                             "Anyway."],
-        ["Ubuntu", "multidestination-studio-1.1.7-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
+        ["Ubuntu", "multidestination-studio-1.1.8-x86_64-linux-gnu.deb", "sudo apt install ./ followed by the "
                                                                          "file name."],
         ["Companion", "obs-studio-4.0.0-multidestination.3.tgz", "Optional: the Companion module (chapter 12)."],
     ], [22, 70, 73])
@@ -379,6 +379,7 @@ def build():
         ["Destinations", "One submenu per destination, Manage destinations, Output blending, New destination "
                          "(chapters 5 and 10)."],
         ["Docks", "Show or hide each dock, Reset docks, Fullscreen (F11)."],
+        ["Show", "New show, Save show, Save show as, Load show, Import, Export (chapter 14)."],
         ["Configuration Settings", "After a transition, Destinations shown, Cues, Startup Settings, Language "
                                    "(chapter 13)."],
     ], [42, 123])
@@ -824,6 +825,33 @@ def build():
         "dock arrangement are saved in the OBS <b>scene collection</b>. Switching collection switches all of "
         "them.",
         "Configuration Settings are saved in your OBS user settings and apply to every collection.",
+    ])
+    s += [P("Shows", h2)]
+    s += [P("A <b>show</b> is an OBS scene collection with everything Multidestination Studio keeps in it. "
+            "The <b>Show</b> menu manages them without going through the OBS window:")]
+    s += table([
+        ["Command", "What it does"],
+        ["New show…", "Asks for a name and creates a new, empty scene collection, which becomes the loaded show. "
+                      "Set up its destinations and scenes as usual."],
+        ["Save show", "Saves the current state in the loaded show."],
+        ["Save show as…", "Saves the current state as a new show (OBS asks for its name) and loads it. The "
+                          "previous show stays as it was last saved."],
+        ["Load show", "Lists the shows; the loaded one is checked. Choosing another one loads it."],
+        ["Import…", "Opens the OBS importer to add a scene collection from a file (OBS or another program). When "
+                    "one show is added, you can load it right away."],
+        ["Export…", "Saves the loaded show to a .json file, with the OBS exporter."],
+    ], [32, 133])
+    s += [P("When the show has changed, Multidestination Studio asks whether to save it: when you close the "
+            "studio, when you quit OBS, and before New show or Load show. <b>Save</b> saves into the loaded show, "
+            "<b>Don’t save</b> keeps the show as it was last saved, <b>Cancel</b> goes back. What is on air "
+            "(Preview and Program scenes) does not count as a change.")]
+    s += bullets([
+        "OBS itself keeps saving the scene collection while you work. With <b>Don’t save</b> at OBS exit or "
+        "before loading another show, Multidestination Studio puts the show file back as it was last saved. "
+        "When you close only the studio, <b>Don’t save</b> leaves your changes in OBS: you are asked again when "
+        "OBS quits.",
+        "Switching collection from the OBS <b>Scene Collection</b> menu keeps the OBS behaviour: the changes are "
+        "saved without asking. If OBS stops unexpectedly, the latest changes are in the show.",
     ])
     s += [P("Shortcuts at a glance", h2)]
     s += table([

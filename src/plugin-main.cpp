@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "cues.hpp"
 #include "manager.hpp"
 #include "remote-control.hpp"
+#include "show.hpp"
 #include "studio-window.hpp"
 #include "tile-grid.hpp"
 #include "text.hpp"
@@ -140,8 +141,16 @@ static void SaveLoad(obs_data_t *save_data, bool saving, void *)
 static void FrontendEvent(enum obs_frontend_event event, void *)
 {
 	Manager &m = Manager::Get();
+	Show::OnFrontendEvent(event);
 	switch (event) {
+	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_LIST_CHANGED:
+	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_RENAMED:
+		if (studio)
+			studio->OnShowChanged();
+		break;
 	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+		if (studio)
+			studio->OnShowChanged();
 		AddControlsButton();
 		m.ApplyLoad();
 		/* Réglage « Launch Multidestination Studio on startup ». */
@@ -158,6 +167,8 @@ static void FrontendEvent(enum obs_frontend_event event, void *)
 			});
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
+		if (studio)
+			studio->OnShowChanged();
 		m.ApplyLoad();
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CLEANUP:

@@ -26,6 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "projector-window.hpp"
 #include "reorder-list.hpp"
 #include "manage-destinations.hpp"
+#include "show.hpp"
 #include "blend-editor.hpp"
 #include "cues.hpp"
 #include "cues-dock.hpp"
@@ -896,7 +897,7 @@ void StudioWindow::BuildMenus()
 
 	/* --- Fichier --- */
 	QMenu *file = bar->addMenu(Tr("MDS.MenuFile"));
-	connect(file->addAction(Tr("MDS.ExitStudio")), &QAction::triggered, this, &StudioWindow::Close);
+	connect(file->addAction(Tr("MDS.ExitStudio")), &QAction::triggered, this, &StudioWindow::RequestClose);
 
 	/* --- Édition --- */
 	QMenu *edit = bar->addMenu(Tr("MDS.MenuEdit"));
@@ -972,6 +973,24 @@ void StudioWindow::BuildMenus()
 		else
 			showFullScreen();
 	});
+
+	/* --- Show : la collection de scènes d'OBS et ses réglages --- */
+	showMenu = bar->addMenu(Tr("MDS.MenuShow"));
+	connect(showMenu->addAction(Tr("MDS.ShowNew")), &QAction::triggered, this, [this]() { Show::New(this); });
+	showMenu->addSeparator();
+	connect(showMenu->addAction(Tr("MDS.ShowSave")), &QAction::triggered, this, []() { Show::Save(); });
+	connect(showMenu->addAction(Tr("MDS.ShowSaveAs")), &QAction::triggered, this,
+		[this]() { OpenOnStudio([this]() { Show::SaveAs(this); }); });
+	loadShowMenu = showMenu->addMenu(Tr("MDS.ShowLoad"));
+	showMenu->addSeparator();
+	connect(showMenu->addAction(Tr("MDS.ShowImport")), &QAction::triggered, this,
+		[this]() { OpenOnStudio([this]() { Show::Import(this); }); });
+	connect(showMenu->addAction(Tr("MDS.ShowExport")), &QAction::triggered, this,
+		[this]() { OpenOnStudio([this]() { Show::Export(this); }); });
+#ifndef Q_OS_MACOS
+	connect(showMenu, &QMenu::aboutToShow, this, &StudioWindow::FillShowMenu);
+#endif
+	FillShowMenu();
 
 	/* --- Réglages --- */
 	QMenu *settingsMenu = bar->addMenu(Tr("MDS.MenuSettings"));
@@ -1103,7 +1122,7 @@ void StudioWindow::UpdateWindowControls()
 void StudioWindow::Toggle()
 {
 	if (isVisible())
-		Close();
+		RequestClose();
 	else
 		Open();
 }
@@ -1164,10 +1183,45 @@ void StudioWindow::Close()
 	}
 }
 
+bool StudioWindow::RequestClose()
+{
+	if (Show::AskToSave(this) == Show::Answer::Cancelled)
+		return false;
+	Close();
+	return true;
+}
+
 void StudioWindow::closeEvent(QCloseEvent *event)
 {
 	event->ignore();
-	Close();
+	RequestClose();
+}
+
+void StudioWindow::FillShowMenu()
+{
+	if (!loadShowMenu)
+		return;
+	loadShowMenu->clear();
+	const QString current = Show::CurrentName();
+	for (const QString &name : Show::Names()) {
+		QAction *action = loadShowMenu->addAction(name);
+		action->setCheckable(true);
+		action->setChecked(name == current);
+		connect(action, &QAction::triggered, this, [this, name]() {
+			Show::Load(this, name);
+			FillShowMenu();
+		});
+	}
+	loadShowMenu->setEnabled(!loadShowMenu->isEmpty());
+}
+
+void StudioWindow::OnShowChanged()
+{
+	const QString name = Show::CurrentName();
+	setWindowTitle(name.isEmpty() ? QStringLiteral("Multidestination Studio")
+				      : QStringLiteral("Multidestination Studio — %1").arg(name));
+	/* Hors de l'ouverture du menu (macOS : menus natifs). */
+	QTimer::singleShot(0, this, &StudioWindow::FillShowMenu);
 }
 
 void StudioWindow::Shutdown()

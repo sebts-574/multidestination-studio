@@ -63,7 +63,11 @@ public:
 	/* Ouvre chaque destination en plein écran sur son écran de sortie. */
 	void OpenAllOutputs();
 	void Close();
+	/* Fermeture demandée par l'utilisateur : propose d'enregistrer le show. */
+	bool RequestClose();
 	void Shutdown();
+	/* Show chargé ou liste des shows modifiés. */
+	void OnShowChanged();
 
 	/* Demande les destinations d'une scène créée dans OBS. */
 	void DuplicateScene(obs_source_t *scene);
@@ -147,6 +151,7 @@ private:
 
 	/* Destinations */
 	void FillDestinationsMenu();
+	void FillShowMenu();
 	void NewDestination();
 	void ManageDestinations();
 	void ScheduleDestinationsMenu();
@@ -233,6 +238,8 @@ private:
 	QPushButton *recordButton = nullptr;
 	QMenu *destinationsMenu = nullptr;
 	QMenu *viewMenu = nullptr;
+	QMenu *showMenu = nullptr;
+	QMenu *loadShowMenu = nullptr;
 	std::vector<QAction *> editActions;
 
 	Destination *activeDest = nullptr;
